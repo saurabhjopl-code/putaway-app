@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Entry / Supervisor - Putaway App</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js"></script>
+</head>
+<body>
+  <h1>Entry / Supervisor</h1>
+  <p><a href="index.html">&larr; Back</a></p>
+
+  <div class="card">
+    <h2>Open Tasks</h2>
+    <div id="taskListStatus" class="status"></div>
+    <table id="taskTable">
+      <thead>
+        <tr>
+          <th>Task Code</th>
+          <th>Created At</th>
+          <th>Lines</th>
+          <th>Units</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- filled dynamically -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" id="taskDetailsCard" style="display:none;">
+    <h2>Task Details: <span id="detailsTaskCode"></span></h2>
+    <p>
+      <button id="exportTaskBtn">Export Task to CSV</button>
+      <button id="closeTaskBtn">Mark as Closed</button>
+    </p>
+    <table id="taskLinesTable">
+      <thead>
+        <tr>
+          <th>Bin</th>
+          <th>SKU</th>
+          <th>Qty</th>
+          <th>Scanned At</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- filled dynamically -->
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Daily Stock Report (Closed Tasks)</h2>
+    <label for="reportDate">Date</label>
+    <input type="date" id="reportDate">
+    <button id="runReportBtn">Run Report</button>
+    <button id="exportReportBtn">Export Report to CSV</button>
+
+    <div id="reportStatus" class="status"></div>
+
+    <h3>Summary</h3>
+    <p>Total Units: <span id="reportTotalUnits">0</span></p>
+
+    <h3>By SKU</h3>
+    <table id="reportBySkuTable">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Units</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>By Bin</h3>
+    <table id="reportByBinTable">
+      <thead>
+        <tr>
+          <th>Bin</th>
+          <th>Units</hth>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    let appDataEntry;
+    let selectedTaskId = null;
+
+    function initEntry() {
+      appDataEntry = loadAppData();
+      refreshOpenTaskList();
+
+      const todayStr = formatDateOnly(new Date());
+      document.getElementById('reportDate').value = todayStr;
+
+      document.getElementById('runReportBtn').addEventListener('click', runReport);
+      document.getElementById('exportReportBtn').addEventListener('click', exportReportCsv);
+      document.getElementById('exportTaskBtn').addEventListener('click', exportSelectedTask);
+      document.getElementById('closeTaskBtn').addEventListener('click', closeSelectedTask);
+
+      runReport(); // default
+    }
+
+    function refreshOpenTaskList() {
+      appDataEntry = loadAppData(); // reload
+      const tbody = document.querySelector('#taskTable tbody');
+      tbody.innerHTML = '';
+
+      const openTasks = appDataEntry.tasks.filter(t => t.status === 'OPEN');
+      const statusEl = document.getElementById('taskListStatus');
+
+      if (openTasks.length === 0) {
+        statusEl.textContent = 'No open tasks.';
+        statusEl.classList.remove('error');
+      } else {
+        statusEl.textContent = `Open tasks: ${openTasks.length}`;
+        statusEl.classList.remove('error');
+      }
+
+      openTasks.forEach(task => {
+        const lines = getLinesForTask(appDataEntry, task.id);
+        const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${task.code || '-'}</td>
+          <td>${task.createdAt ? task.createdAt.replace('T', ' ').substring(0, 16) : ''}</td>
+          <td>${lines.length}</td>
+          <td>${totalUnits}</td>
+          <td><button data-task-id="${task.id}" class="viewTaskBtn">View</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-task-id');
+          showTaskDetails(id);
+        });
+      });
+
+      // Hide details if selected task is no longer open
+      if (selectedTaskId) {
+        const stillOpen = openTasks.find(t => t.id === selectedTaskId);
+        if (!stillOpen) {
+          hideTaskDetails();
+        }
+      }
+    }
+
+    function showTaskDetails(taskId) {
+      selectedTaskId = taskId;
+      const card = document.getElementById('taskDetailsCard');
+      const codeEl = document.getElementById('detailsTaskCode');
+      const tbody = document.querySelector('#taskLinesTable tbody');
+
+      const task = appDataEntry.tasks.find(t => t.id === taskId);
+      if (!task || task.status !== 'OPEN') {
+        alert('Task is not open or not found.');
+        hideTaskDetails();
+        refreshOpenTaskList();
+        return;
+      }
+
+      const lines = getLinesForTask(appDataEntry, task.id);
+
+      card.style.display = 'block';
+      codeEl.textContent = task.code || '-';
+
+      tbody.innerHTML = '';
+      lines.forEach(line => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${line.binId}</td>
+          <td>${line.skuId}</td>
+          <td>${line.qty}</td>
+          <td>${line.scannedAt.replace('T', ' ').substring(0, 16)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function hideTaskDetails() {
+      selectedTaskId = null;
+      document.getElementById('taskDetailsCard').style.display = 'none';
+    }
+
+    function exportSelectedTask() {
+      if (!selectedTaskId) {
+        alert('No task selected.');
+        return;
+      }
+      const task = appDataEntry.tasks.find(t => t.id === selectedTaskId);
+      if (!task) {
+        alert('Task not found.');
+        return;
+      }
+      const lines = getLinesForTask(appDataEntry, task.id);
+
+      const rows = [];
+      rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at']);
+      lines.forEach(l => {
+        rows.push([task.code, l.binId, l.skuId, l.qty, l.scannedAt]);
+      });
+
+      const filename = (task.code || 'task') + '.csv';
+      downloadCsv(filename, rows);
+    }
+
+    function closeSelectedTask() {
+      if (!selectedTaskId) {
+        alert('No task selected.');
+        return;
+      }
+      if (!confirm('Mark this task as CLOSED? You will not see it again.')) {
+        return;
+      }
+      const task = appDataEntry.tasks.find(t => t.id === selectedTaskId);
+      if (!task) {
+        alert('Task not found.');
+        return;
+      }
+      if (task.status !== 'OPEN') {
+        alert('Task is not OPEN.');
+        return;
+      }
+
+      task.status = 'CLOSED';
+      task.closedAt = new Date().toISOString();
+      task.closedBy = 'ENTRY_USER'; // optional: replace with real user id
+      saveAppData(appDataEntry);
+
+      hideTaskDetails();
+      refreshOpenTaskList();
+      runReport(); // refresh report
+    }
+
+    function runReport() {
+      appDataEntry = loadAppData();
+      const dateStr = document.getElementById('reportDate').value;
+      const statusEl = document.getElementById('reportStatus');
+      const bySkuBody = document.querySelector('#reportBySkuTable tbody');
+      const byBinBody = document.querySelector('#reportByBinTable tbody');
+      const totalEl = document.getElementById('reportTotalUnits');
+
+      bySkuBody.innerHTML = '';
+      byBinBody.innerHTML = '';
+      totalEl.textContent = '0';
+
+      if (!dateStr) {
+        statusEl.textContent = 'Select a date.';
+        statusEl.classList.add('error');
+        return;
+      }
+
+      // Collect CLOSED tasks on that date
+      const targetDate = dateStr;
+      const closedTasks = appDataEntry.tasks.filter(
+        t =>
+          t.status === 'CLOSED' &&
+          t.closedAt &&
+          formatDateOnly(t.closedAt) === targetDate
+      );
+
+      if (closedTasks.length === 0) {
+        statusEl.textContent = 'No CLOSED tasks for this date.';
+        statusEl.classList.remove('error');
+        totalEl.textContent = '0';
+        return;
+      }
+
+      // Aggregate from lines
+      const closedTaskIds = new Set(closedTasks.map(t => t.id));
+      const relevantLines = appDataEntry.lines.filter(l =>
+        closedTaskIds.has(l.taskId)
+      );
+
+      const totalUnits = relevantLines.reduce(
+        (sum, l) => sum + (parseInt(l.qty, 10) || 0),
+        0
+      );
+      totalEl.textContent = totalUnits;
+
+      const bySku = {};
+      const byBin = {};
+
+      relevantLines.forEach(l => {
+        const qty = parseInt(l.qty, 10) || 0;
+        if (!bySku[l.skuId]) bySku[l.skuId] = 0;
+        bySku[l.skuId] += qty;
+
+        if (!byBin[l.binId]) byBin[l.binId] = 0;
+        byBin[l.binId] += qty;
+      });
+
+      Object.entries(bySku).forEach(([sku, units]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${sku}</td><td>${units}</td>`;
+        bySkuBody.appendChild(tr);
+      });
+
+      Object.entries(byBin).forEach(([bin, units]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${bin}</td><td>${units}</td>`;
+        byBinBody.appendChild(tr);
+      });
+
+      statusEl.textContent = `Closed tasks: ${closedTasks.length}. Total units: ${totalUnits}`;
+      statusEl.classList.remove('error');
+    }
+
+    function exportReportCsv() {
+      const dateStr = document.getElementById('reportDate').value;
+      if (!dateStr) {
+        alert('Select a date first.');
+        return;
+      }
+
+      // Same logic as runReport to gather relevant lines
+      appDataEntry = loadAppData();
+      const closedTasks = appDataEntry.tasks.filter(
+        t =>
+          t.status === 'CLOSED' &&
+          t.closedAt &&
+          formatDateOnly(t.closedAt) === dateStr
+      );
+      if (closedTasks.length === 0) {
+        alert('No CLOSED tasks for this date.');
+        return;
+      }
+
+      const closedTaskIds = new Set(closedTasks.map(t => t.id));
+      const relevantLines = appDataEntry.lines.filter(l =>
+        closedTaskIds.has(l.taskId)
+      );
+
+      const rows = [];
+      rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at', 'closed_at']);
+      relevantLines.forEach(l => {
+        const task = appDataEntry.tasks.find(t => t.id === l.taskId);
+        rows.push([
+          task ? task.code : '',
+          l.binId,
+          l.skuId,
+          l.qty,
+          l.scannedAt,
+          task ? task.closedAt : ''
+        ]);
+      });
+
+      const filename = `daily_stock_${dateStr}.csv`;
+      downloadCsv(filename, rows);
+    }
+
+    window.addEventListener('load', initEntry);
+  </script>
+</body>
+</html>
