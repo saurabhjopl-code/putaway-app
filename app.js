@@ -176,4 +176,52 @@ function formatDateOnly(d) {
   const dd = String(dt.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
+let skuMap = {}; // sku_id -> { name }
+async function loadSkuMaster() {
+  try {
+    const res = await fetch('sku_master.csv');
+    if (!res.ok) {
+      console.warn('No sku_master.csv found (optional)');
+      skuMap = {};
+      return;
+    }
+    const text = await res.text();
+    const lines = text
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+
+    if (lines.length === 0) {
+      skuMap = {};
+      return;
+    }
+
+    const rawHeader = lines[0].split(/,|\t/).map(h =>
+      h.replace(/^\uFEFF/, '').trim().toLowerCase()
+    );
+    const skuIdx = rawHeader.indexOf('sku_id');
+    const nameIdx = rawHeader.indexOf('sku_name');
+
+    if (skuIdx === -1 || nameIdx === -1) {
+      console.warn('sku_master.csv missing sku_id,sku_name headers');
+      skuMap = {};
+      return;
+    }
+
+    skuMap = {};
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(/,|\t/).map(c => c.trim());
+      const skuId = cols[skuIdx];
+      const skuName = cols[nameIdx] || '';
+      if (skuId) {
+        skuMap[skuId] = { name: skuName };
+      }
+    }
+    console.log('Loaded SKUs:', skuMap);
+  } catch (e) {
+    console.warn('Error loading sku_master.csv', e);
+    skuMap = {};
+  }
+}
+
 
