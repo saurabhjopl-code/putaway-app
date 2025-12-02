@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Putaway App</title>
+  <title>Putaway App – Home</title>
   <link rel="stylesheet" href="style.css">
+  <script src="app.js"></script>
 </head>
 <body>
   <div class="app-header">
@@ -14,14 +15,98 @@
     </div>
   </div>
 
-  <div class="card">
-    <h1>Putaway App</h1>
-    <p>Choose your role:</p>
-    <ul>
-      <li><a href="scanner.html">Scanner (Putaway Agent)</a></li>
-      <li><a href="entry.html">Entry / Supervisor</a></li>
-    </ul>
-    <p><small>Note: Data is stored in Google Sheets via Apps Script backend.</small></p>
+  <div class="card home-card">
+    <h1>Welcome</h1>
+    <p class="home-subtitle">
+      Login with your PIN to access Scanner or Supervisor panel.
+    </p>
+
+    <label for="pinInput">Enter PIN</label>
+    <input type="password" id="pinInput" maxlength="10" autocomplete="off">
+    <button id="loginBtn" class="primary">Login</button>
+
+    <div id="loginStatus" class="status"></div>
+
+    <p class="home-footer-note">
+      <small>FOR INTERNAL USE ONLY</small>
+    </p>
   </div>
+
+  <script>
+    async function initIndex() {
+      const user = getCurrentUser();
+      const statusEl = document.getElementById('loginStatus');
+
+      if (user && user.role) {
+        statusEl.textContent = `Already logged in as ${user.name} (${user.role}). Redirecting...`;
+        setTimeout(() => {
+          if (user.role === 'SCANNER') {
+            window.location.href = 'scanner.html';
+          } else if (user.role === 'SUPERVISOR') {
+            window.location.href = 'entry.html';
+          }
+        }, 800);
+        return;
+      }
+
+      const pinInput = document.getElementById('pinInput');
+      const loginBtn = document.getElementById('loginBtn');
+
+      pinInput.focus();
+
+      loginBtn.addEventListener('click', onLogin);
+      pinInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') onLogin();
+      });
+    }
+
+    async function onLogin() {
+      const pinInput = document.getElementById('pinInput');
+      const statusEl = document.getElementById('loginStatus');
+      const pin = pinInput.value.trim();
+
+      statusEl.textContent = '';
+      statusEl.classList.remove('error', 'success');
+
+      if (!pin) {
+        statusEl.textContent = 'Please enter PIN.';
+        statusEl.classList.add('error');
+        return;
+      }
+
+      try {
+        statusEl.textContent = 'Logging in...';
+        const resp = await loginUser(pin);
+        if (!resp.success || !resp.user) {
+          statusEl.textContent = resp.error || 'Login failed.';
+          statusEl.classList.add('error');
+          return;
+        }
+
+        const user = resp.user;
+        setCurrentUser(user);
+
+        statusEl.textContent = `Login successful. Hello ${user.name} (${user.role}).`;
+        statusEl.classList.add('success');
+
+        setTimeout(() => {
+          if (user.role === 'SCANNER') {
+            window.location.href = 'scanner.html';
+          } else if (user.role === 'SUPERVISOR') {
+            window.location.href = 'entry.html';
+          } else {
+            statusEl.textContent = 'Unknown role. Contact admin.';
+            statusEl.classList.add('error');
+          }
+        }, 600);
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.classList.add('error');
+      }
+    }
+
+    window.addEventListener('load', initIndex);
+  </script>
 </body>
 </html>
