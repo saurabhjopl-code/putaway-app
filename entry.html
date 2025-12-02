@@ -15,10 +15,14 @@
     </div>
   </div>
 
-  <p><a href="index.html">&larr; Back</a></p>
+  <p>
+    <a href="index.html">&larr; Home</a>
+    <span id="entryUserInfo" style="margin-left:12px; font-size:0.85rem;"></span>
+    <button id="logoutBtn" class="secondary" style="float:right;">Logout</button>
+  </p>
 
   <div class="card">
-    <h2>Open Tasks</h2>
+    <h2>Open Tasks (Today Only)</h2>
     <div id="taskListStatus" class="status"></div>
     <table id="taskTable">
       <thead>
@@ -79,12 +83,17 @@
       </thead>
       <tbody></tbody>
     </table>
+  </div>
 
-    <h3>By Bin</h3>
-    <table id="reportByBinTable">
+  <div class="card">
+    <h2>Pending Open Tasks from Previous Days</h2>
+    <div id="pendingOldStatus" class="status"></div>
+    <table id="pendingOldTable">
       <thead>
         <tr>
-          <th>Bin</th>
+          <th>Task Code</th>
+          <th>Created At</th>
+          <th>Lines</th>
           <th>Units</th>
         </tr>
       </thead>
@@ -103,6 +112,22 @@
     let selectedTaskId = null;
 
     async function initEntry() {
+      const user = getCurrentUser();
+      const userInfoEl = document.getElementById('entryUserInfo');
+
+      if (!user || user.role !== 'SUPERVISOR') {
+        alert('You must login as SUPERVISOR to access this page.');
+        window.location.href = 'index.html';
+        return;
+      }
+
+      userInfoEl.textContent = `Logged in as ${user.name} (${user.role})`;
+
+      document.getElementById('logoutBtn').addEventListener('click', () => {
+        setCurrentUser(null);
+        window.location.href = 'index.html';
+      });
+
       try {
         await loadSkuMaster();
         await fetchAppData();
@@ -110,7 +135,8 @@
         const todayStr = formatDateOnly(new Date());
         document.getElementById('reportDate').value = todayStr;
 
-        refreshOpenTaskList();
+        refreshOpenTaskListToday();
+        refreshPendingOldOpenTasks();
         attachHandlers();
         await runReport();
       } catch (e) {
@@ -147,22 +173,28 @@
       });
     }
 
-    function refreshOpenTaskList() {
+    function refreshOpenTaskListToday() {
       const tbody = document.querySelector('#taskTable tbody');
       tbody.innerHTML = '';
 
-      const openTasks = appData.tasks.filter(t => t.status === 'OPEN');
+      const today = formatDateOnly(new Date());
+      const openTasksToday = appData.tasks.filter(t =>
+        t.status === 'OPEN' &&
+        t.createdAt &&
+        formatDateOnly(t.createdAt) === today
+      );
+
       const statusEl = document.getElementById('taskListStatus');
 
-      if (openTasks.length === 0) {
-        statusEl.textContent = 'No open tasks.';
+      if (openTasksToday.length === 0) {
+        statusEl.textContent = 'No open tasks for today.';
         statusEl.classList.remove('error');
       } else {
-        statusEl.textContent = `Open tasks: ${openTasks.length}`;
+        statusEl.textContent = `Open tasks today: ${openTasksToday.length}`;
         statusEl.classList.remove('error');
       }
 
-      openTasks.forEach(task => {
+      openTasksToday.forEach(task => {
         const lines = getLinesForTask(task.id);
         const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
 
@@ -185,9 +217,45 @@
       });
 
       if (selectedTaskId) {
-        const stillOpen = openTasks.find(t => t.id === selectedTaskId);
+        const stillOpen = openTasksToday.find(t => t.id === selectedTaskId);
         if (!stillOpen) hideTaskDetails();
       }
+    }
+
+    function refreshPendingOldOpenTasks() {
+      const tbody = document.querySelector('#pendingOldTable tbody');
+      tbody.innerHTML = '';
+
+      const today = formatDateOnly(new Date());
+      const pendingOld = appData.tasks.filter(t =>
+        t.status === 'OPEN' &&
+        t.createdAt &&
+        formatDateOnly(t.createdAt) < today
+      );
+
+      const statusEl = document.getElementById('pendingOldStatus');
+      if (pendingOld.length === 0) {
+        statusEl.textContent = 'No pending open tasks from previous days.';
+        statusEl.classList.remove('error');
+        return;
+      }
+
+      statusEl.textContent = `Pending open tasks from previous days: ${pendingOld.length}`;
+      statusEl.classList.remove('error');
+
+      pendingOld.forEach(task => {
+        const lines = getLinesForTask(task.id);
+        const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${task.code || '-'}</td>
+          <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
+          <td>${lines.length}</td>
+          <td>${totalUnits}</td>
+        `;
+        tbody.appendChild(tr);
+      });
     }
 
     function showTaskDetails(taskId) {
@@ -200,7 +268,7 @@
       if (!task || task.status !== 'OPEN') {
         alert('Task is not open or not found.');
         hideTaskDetails();
-        refreshOpenTaskList();
+        refreshOpenTaskListToday();
         return;
       }
 
@@ -250,6 +318,7 @@
     }
 
     async function closeSelectedTask() {
+      const user = getCurrentUser();
       if (!selectedTaskId) {
         alert('No task selected.');
         return;
@@ -268,15 +337,16 @@
       }
 
       try {
-        const resp = await updateTaskStatusOnBackend(task.id, 'CLOSED', 'ENTRY_USER');
-        if (!resp.success) {
+        const resp = await updateTaskStatusOnBackend(task.id, 'CLOSED', user.user_id);
+        if (!resp) {
           alert('Failed to close task on server.');
           return;
         }
 
         await fetchAppData();
         hideTaskDetails();
-        refreshOpenTaskList();
+        refreshOpenTaskListToday();
+        refreshPendingOldOpenTasks();
         await runReport();
       } catch (e) {
         console.error(e);
@@ -288,11 +358,9 @@
       const dateStr = document.getElementById('reportDate').value;
       const statusEl = document.getElementById('reportStatus');
       const bySkuBody = document.querySelector('#reportBySkuTable tbody');
-      const byBinBody = document.querySelector('#reportByBinTable tbody');
       const totalEl = document.getElementById('reportTotalUnits');
 
       bySkuBody.innerHTML = '';
-      byBinBody.innerHTML = '';
       totalEl.textContent = '0';
 
       if (!dateStr) {
@@ -301,14 +369,13 @@
         return;
       }
 
-      await fetchAppData(); // refresh before report
+      await fetchAppData();
 
-      const targetDate = dateStr;
       const closedTasks = appData.tasks.filter(
         t =>
           t.status === 'CLOSED' &&
           t.closedAt &&
-          formatDateOnly(t.closedAt) === targetDate
+          formatDateOnly(t.closedAt) === dateStr
       );
 
       if (closedTasks.length === 0) {
@@ -330,27 +397,16 @@
       totalEl.textContent = totalUnits;
 
       const bySku = {};
-      const byBin = {};
-
       relevantLines.forEach(l => {
         const qty = parseInt(l.qty, 10) || 0;
         if (!bySku[l.skuId]) bySku[l.skuId] = 0;
         bySku[l.skuId] += qty;
-
-        if (!byBin[l.binId]) byBin[l.binId] = 0;
-        byBin[l.binId] += qty;
       });
 
       Object.entries(bySku).forEach(([sku, units]) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${sku}</td><td>${units}</td>`;
         bySkuBody.appendChild(tr);
-      });
-
-      Object.entries(byBin).forEach(([bin, units]) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${bin}</td><td>${units}</td>`;
-        byBinBody.appendChild(tr);
       });
 
       statusEl.textContent = `Closed tasks: ${closedTasks.length}. Total units: ${totalUnits}`;
