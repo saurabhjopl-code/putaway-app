@@ -3,35 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <title>Scanner - Putaway App</title>
-  <script src="https://unpkg.com/html5-qrcode"></script>
   <link rel="stylesheet" href="style.css">
   <script src="app.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
   <div class="app-header">
-  <img src="logo.png" alt="Logo" onerror="this.style.display='none'">
-  <div class="app-header-title">
-    <span>RAJNANDINI FASHION LIMITED INDIA</span>
-    <span>Warehouse Putaway System</span>
+    <img src="logo.png" alt="Logo" onerror="this.style.display='none'">
+    <div class="app-header-title">
+      <span>RAJNANDINI FASHION LIMITED INDIA</span>
+      <span>Warehouse Putaway System – Scanner</span>
+    </div>
   </div>
-</div>
 
-  <h1>Scanner</h1>
   <p><a href="index.html">&larr; Back</a></p>
-  <div class="card">
-    <h2>Camera Scanner</h2>
-    <p>
-      <button id="scanBinBtn">Scan Bin with Camera</button>
-      <button id="scanSkuBtn">Scan SKU with Camera</button>
-    </p>
-    <div id="qrReader" style="width: 100%; max-width: 400px;"></div>
-    <p><small>Allow camera permission when prompted.</small></p>
-  </div>
 
   <div class="card">
     <h2>Current Task</h2>
     <p>Task Code: <strong id="taskCodeLabel">[Not generated yet]</strong></p>
-    <p><small>Task is auto-created and auto-saved. Task code is generated when you finish.</small></p>
+    <p><small>Task is auto-created on backend when you save first line. Task code is generated when you finish.</small></p>
     <p>
       Lines in this task: <span id="taskLineCount">0</span> |
       Units in this task: <span id="taskUnitCount">0</span>
@@ -42,88 +32,36 @@
     <h2>Scan & Store</h2>
     <div id="statusMessage" class="status"></div>
 
-    <label for="binInput">Bin ID (scan barcode)</label>
+    <label for="binInput">Bin ID (scan or type)</label>
     <input type="text" id="binInput" autocomplete="off">
 
-    <label for="skuInput">SKU ID (scan barcode)</label>
+    <label for="skuInput">SKU ID (scan or type)</label>
     <input type="text" id="skuInput" autocomplete="off">
+    <div id="skuNameHint"><small>SKU: -</small></div>
 
     <label for="qtyInput">Quantity</label>
     <input type="number" id="qtyInput" min="1" inputmode="numeric">
 
-    <button id="saveLineBtn">Save Line</button>
-    <button id="finishTaskBtn">Finish Task</button>
+    <button id="saveLineBtn" class="primary">Save Line</button>
+    <button id="finishTaskBtn" class="accent">Finish Task</button>
+  </div>
+
+  <div class="card">
+    <h2>Camera Scanner</h2>
+    <p>
+      <button id="scanBinBtn" class="secondary">Scan Bin with Camera</button>
+      <button id="scanSkuBtn" class="secondary">Scan SKU with Camera</button>
+    </p>
+    <div id="qrReader" style="width: 100%; max-width: 400px;"></div>
+    <p><small>Allow camera permission when prompted.</small></p>
   </div>
 
   <script>
-    let appData;
-    let currentTask;
     let deviceId;
+    let currentTaskId = null;
 
-    async function initScanner() {
-      const statusEl = document.getElementById('statusMessage');
-      try {
-        statusEl.textContent = 'Loading bins...';
-        await loadBins();
-                await loadSkuMaster();
-    <label for="skuInput">SKU ID (scan barcode)</label>
-    <input type="text" id="skuInput" autocomplete="off">
-    <div id="skuNameHint"><small>SKU: -</small></div>
-
-      const scanBinBtn = document.getElementById('scanBinBtn');
-      const scanSkuBtn = document.getElementById('scanSkuBtn');
-
-      scanBinBtn.addEventListener('click', () => startScanner('bin'));
-      scanSkuBtn.addEventListener('click', () => startScanner('sku'));
-
-        deviceId = getDeviceId();
-        appData = loadAppData();
-        currentTask = getOrCreateInProgressTask(appData, deviceId);
-
-        refreshTaskSummary();
-
-        statusEl.textContent = 'Ready. Scan Bin.';
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = 'Error loading bins.csv: ' + e.message;
-        statusEl.classList.add('error');
-        return;
-      }
-
-      const binInput = document.getElementById('binInput');
-      const skuInput = document.getElementById('skuInput');
-      const qtyInput = document.getElementById('qtyInput');
-      const saveLineBtn = document.getElementById('saveLineBtn');
-      const finishTaskBtn = document.getElementById('finishTaskBtn');
-
-      // Default focus on bin input
-      binInput.focus();
-
-      saveLineBtn.addEventListener('click', onSaveLine);
-      finishTaskBtn.addEventListener('click', onFinishTask);
-
-      // Enter key shortcuts
-      binInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') skuInput.focus();
-      });
-      skuInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') qtyInput.focus();
-      });
-      qtyInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter') onSaveLine();
-      });
-    }
-
-    function refreshTaskSummary() {
-      const lines = getLinesForTask(appData, currentTask.id);
-      const totalLines = lines.length;
-      const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
-
-      document.getElementById('taskCodeLabel').textContent =
-        currentTask.code || '[Not generated yet]';
-      document.getElementById('taskLineCount').textContent = totalLines;
-      document.getElementById('taskUnitCount').textContent = totalUnits;
-    }
+    let html5QrCode = null;
+    let currentScanTarget = null; // 'bin' or 'sku'
 
     function showStatus(msg, isError = false) {
       const statusEl = document.getElementById('statusMessage');
@@ -136,7 +74,101 @@
       }
     }
 
-    function onSaveLine() {
+    function updateSkuHint(skuId) {
+      const el = document.getElementById('skuNameHint');
+      if (!el) return;
+      if (!skuId) {
+        el.innerHTML = '<small>SKU: -</small>';
+        return;
+      }
+      const info = skuMap[skuId];
+      if (info) {
+        el.innerHTML = `<small>SKU: ${skuId} – ${info.name}</small>`;
+      } else {
+        el.innerHTML = `<small>SKU: ${skuId} (not in SKU master)</small>`;
+      }
+    }
+
+    function refreshTaskSummary() {
+      if (!currentTaskId) {
+        document.getElementById('taskCodeLabel').textContent = '[Not generated yet]';
+        document.getElementById('taskLineCount').textContent = '0';
+        document.getElementById('taskUnitCount').textContent = '0';
+        return;
+      }
+      const task = appData.tasks.find(t => t.id === currentTaskId);
+      const lines = getLinesForTask(currentTaskId);
+      const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+
+      document.getElementById('taskCodeLabel').textContent =
+        task && task.code ? task.code : '[Not generated yet]';
+      document.getElementById('taskLineCount').textContent = lines.length;
+      document.getElementById('taskUnitCount').textContent = totalUnits;
+    }
+
+    async function initScanner() {
+      const statusEl = document.getElementById('statusMessage');
+      try {
+        statusEl.textContent = 'Loading bins & SKUs...';
+        await loadBins();
+        await loadSkuMaster();
+
+        deviceId = getDeviceId();
+
+        statusEl.textContent = 'Loading data from backend...';
+        await fetchAppData();
+
+        // find existing IN_PROGRESS task for this device (if any)
+        const existing = appData.tasks.find(
+          t => t.status === 'IN_PROGRESS' && t.scannerDeviceId === deviceId
+        );
+        if (existing) {
+          currentTaskId = existing.id;
+        } else {
+          currentTaskId = null; // will be set after first line is saved
+        }
+
+        refreshTaskSummary();
+        showStatus('Ready. Scan Bin.', false);
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.classList.add('error');
+        return;
+      }
+
+      const binInput = document.getElementById('binInput');
+      const skuInput = document.getElementById('skuInput');
+      const qtyInput = document.getElementById('qtyInput');
+      const saveLineBtn = document.getElementById('saveLineBtn');
+      const finishTaskBtn = document.getElementById('finishTaskBtn');
+      const scanBinBtn = document.getElementById('scanBinBtn');
+      const scanSkuBtn = document.getElementById('scanSkuBtn');
+
+      binInput.focus();
+
+      saveLineBtn.addEventListener('click', onSaveLine);
+      finishTaskBtn.addEventListener('click', onFinishTask);
+
+      binInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') skuInput.focus();
+      });
+      skuInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') qtyInput.focus();
+      });
+      qtyInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') onSaveLine();
+      });
+
+      skuInput.addEventListener('input', () => {
+        updateSkuHint(skuInput.value.trim());
+      });
+
+      scanBinBtn.addEventListener('click', () => startScanner('bin'));
+      scanSkuBtn.addEventListener('click', () => startScanner('sku'));
+    }
+
+    async function onSaveLine() {
       const binInput = document.getElementById('binInput');
       const skuInput = document.getElementById('skuInput');
       const qtyInput = document.getElementById('qtyInput');
@@ -166,68 +198,74 @@
         return;
       }
 
-      // Capacity check
-      const capacity = binsMap[binId];
-      const used = getBinUsedUnits(appData, binId);
-      if (used + qtyVal > capacity) {
-        const free = capacity - used;
-        showStatus(
-          `Bin ${binId} capacity exceeded. Used=${used}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`,
-          true
-        );
-        return;
+      try {
+        // refresh data to get up-to-date usage before capacity check
+        await fetchAppData();
+        const used = getBinUsedUnits(binId);
+        const capacity = binsMap[binId];
+        if (used + qtyVal > capacity) {
+          const free = capacity - used;
+          showStatus(
+            `Bin ${binId} capacity exceeded. Used=${used}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`,
+            true
+          );
+          return;
+        }
+
+        const resp = await saveLineToBackend(deviceId, binId, skuId, qtyVal);
+        if (!resp.success) {
+          showStatus('Failed to save line on server.', true);
+          return;
+        }
+        currentTaskId = resp.taskId;
+
+        await fetchAppData();
+        refreshTaskSummary();
+        showStatus(`Saved: Bin ${binId}, SKU ${skuId}, Qty ${qtyVal}`, false);
+
+        skuInput.value = '';
+        qtyInput.value = '';
+        updateSkuHint('');
+        skuInput.focus();
+      } catch (e) {
+        console.error(e);
+        showStatus('Error: ' + e.message, true);
       }
-
-      // Save line
-      const now = new Date().toISOString();
-      appData.lines.push({
-        id: 'line-' + Math.random().toString(36).substring(2, 10),
-        taskId: currentTask.id,
-        binId,
-        skuId,
-        qty: qtyVal,
-        scannedAt: now
-      });
-
-      // Update task header
-      currentTask.lastActivityAt = now;
-      saveAppData(appData);
-
-      refreshTaskSummary();
-
-      showStatus(`Saved: Bin ${binId}, SKU ${skuId}, Qty ${qtyVal}`, false);
-
-      // Clear SKU & qty, keep focus on SKU for speed
-      skuInput.value = '';
-      qtyInput.value = '';
-      skuInput.focus();
     }
 
-    function onFinishTask() {
-      const lines = getLinesForTask(appData, currentTask.id);
-      if (lines.length === 0) {
-        showStatus('Cannot finish an empty task. Add at least one line.', true);
+    async function onFinishTask() {
+      if (!currentTaskId) {
+        showStatus('No active task to finish.', true);
         return;
       }
+      try {
+        await fetchAppData();
+        const lines = getLinesForTask(currentTaskId);
+        if (lines.length === 0) {
+          showStatus('Cannot finish an empty task. Add at least one line.', true);
+          return;
+        }
 
-      if (!currentTask.code) {
-        currentTask.code = generateTaskCode(appData);
+        const resp = await updateTaskStatusOnBackend(currentTaskId, 'OPEN', null);
+        if (!resp.success) {
+          showStatus('Failed to update task status on server.', true);
+          return;
+        }
+
+        const taskCode = resp.code || '[code generated]';
+        showStatus('Task submitted. Task ID: ' + taskCode, false);
+
+        // After finishing, clear currentTaskId. Next save will create/use new IN_PROGRESS task.
+        currentTaskId = null;
+        await fetchAppData();
+        refreshTaskSummary();
+      } catch (e) {
+        console.error(e);
+        showStatus('Error: ' + e.message, true);
       }
-
-      currentTask.status = 'OPEN';
-      currentTask.lastActivityAt = new Date().toISOString();
-      saveAppData(appData);
-
-      showStatus('Task submitted. Task ID: ' + currentTask.code, false);
-
-      // Clear currentTask and create new IN_PROGRESS next time
-      appData = loadAppData(); // reload to ensure consistency
-      currentTask = getOrCreateInProgressTask(appData, deviceId);
-      refreshTaskSummary();
     }
-    // ---- Camera barcode scanning ----
-    let html5QrCode = null;
-    let currentScanTarget = null; // 'bin' or 'sku';
+
+    // ===== CAMERA BARCODE SCANNING =====
 
     function startScanner(target) {
       currentScanTarget = target;
@@ -253,6 +291,7 @@
                 document.getElementById('skuInput').focus();
               } else if (currentScanTarget === 'sku') {
                 document.getElementById('skuInput').value = decodedText.trim();
+                updateSkuHint(decodedText.trim());
                 document.getElementById('qtyInput').focus();
               }
               stopScanner();
@@ -282,6 +321,3 @@
   </script>
 </body>
 </html>
-
-
-
