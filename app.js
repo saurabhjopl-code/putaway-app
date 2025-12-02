@@ -1,34 +1,14 @@
 // app.js
 
-// ---- Storage helpers ----
-const STORAGE_KEY = 'putaway_app_v1';
+// ====== CONFIG ======
+const API_URL = 'https://script.google.com/macros/s/AKfycbwZPCt39-pqFmpgiMwauMOotYYD_F_PoWiNDQZ0mVCjYAWDKyKcoPQN3D39Lt_n6OGu/exec';
 
-function loadAppData() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return {
-      tasks: [],
-      lines: [],
-      sequence: { lastDate: null, lastNumber: 0 } // for task_code
-    };
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error('Failed to parse app data, resetting', e);
-    return {
-      tasks: [],
-      lines: [],
-      sequence: { lastDate: null, lastNumber: 0 }
-    };
-  }
-}
+// ====== GLOBAL STATE ======
+let appData = { tasks: [], lines: [] }; // loaded from backend
+let binsMap = {}; // bin_id -> capacity
+let skuMap = {};  // sku_id -> { name }
 
-function saveAppData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-// ---- Device / scanner identity ----
+// ====== DEVICE ID (for scanner) ======
 const DEVICE_KEY = 'putaway_device_id';
 
 function getDeviceId() {
@@ -40,15 +20,54 @@ function getDeviceId() {
   return id;
 }
 
-// ---- BIN master (from bins.csv) ----
-let binsMap = {}; // bin_id -> capacity
+// ====== BACKEND CALLS ======
+
+async function fetchAppData() {
+  const res = await fetch(API_URL + '?action=getAppData');
+  if (!res.ok) throw new Error('Failed to load app data');
+  appData = await res.json();
+}
+
+async function saveLineToBackend(deviceId, binId, skuId, qty) {
+  const payload = {
+    action: 'saveLine',
+    deviceId,
+    binId,
+    skuId,
+    qty
+  };
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to save line');
+  return res.json(); // { success, taskId }
+}
+
+async function updateTaskStatusOnBackend(taskId, newStatus, closedBy) {
+  const payload = {
+    action: 'updateTaskStatus',
+    taskId,
+    newStatus,
+    closedBy: closedBy || ''
+  };
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to update task status');
+  return res.json(); // e.g. { success, code }
+}
+
+// ====== BIN MASTER (bins.csv) ======
 
 async function loadBins() {
   const res = await fetch('bins.csv');
   if (!res.ok) throw new Error('Unable to load bins.csv');
   const text = await res.text();
 
-  // Split lines robustly for Windows/Unix line endings
   const lines = text
     .split(/\r?\n/)
     .map(l => l.trim())
@@ -58,7 +77,6 @@ async function loadBins() {
     throw new Error('bins.csv is empty');
   }
 
-  // Split header and trim + strip BOM + accept comma or tab
   const rawHeader = lines[0].split(/,|\t/).map(h =>
     h.replace(/^\uFEFF/, '').trim().toLowerCase()
   );
@@ -84,99 +102,8 @@ async function loadBins() {
   console.log('Loaded bins:', binsMap);
 }
 
+// ====== SKU MASTER (sku_master.csv) ======
 
-// ---- Task helpers ----
-
-function getOrCreateInProgressTask(appData, deviceId) {
-  // Existing IN_PROGRESS for this device?
-  let task = appData.tasks.find(
-    t => t.status === 'IN_PROGRESS' && t.scannerDeviceId === deviceId
-  );
-  if (task) return task;
-
-  const now = new Date().toISOString();
-  task = {
-    id: 'task-' + Math.random().toString(36).substring(2, 10),
-    code: null,              // will be set when finished
-    status: 'IN_PROGRESS',   // IN_PROGRESS | OPEN | CLOSED
-    createdAt: now,
-    createdBy: deviceId,
-    closedAt: null,
-    closedBy: null,
-    scannerDeviceId: deviceId,
-    lastActivityAt: now
-  };
-  appData.tasks.push(task);
-  saveAppData(appData);
-  return task;
-}
-
-function generateTaskCode(appData) {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const todayStr = `${yyyy}${mm}${dd}`;
-  if (appData.sequence.lastDate !== todayStr) {
-    appData.sequence.lastDate = todayStr;
-    appData.sequence.lastNumber = 0;
-  }
-  appData.sequence.lastNumber += 1;
-  const seq = String(appData.sequence.lastNumber).padStart(4, '0');
-  saveAppData(appData);
-  return `PUT-${todayStr}-${seq}`;
-}
-
-function getLinesForTask(appData, taskId) {
-  return appData.lines.filter(l => l.taskId === taskId);
-}
-
-function getBinUsedUnits(appData, binId) {
-  return appData.lines
-    .filter(l => l.binId === binId)
-    .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
-}
-
-// ---- CSV export helper ----
-
-function downloadCsv(filename, rows) {
-  const csvContent =
-    rows
-      .map(row =>
-        row
-          .map(v => {
-            if (v == null) return '';
-            const s = String(v);
-            if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-              return '"' + s.replace(/"/g, '""') + '"';
-            }
-            return s;
-          })
-          .join(',')
-      )
-      .join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// ---- Date helper for reports ----
-
-function formatDateOnly(d) {
-  const dt = new Date(d);
-  const yyyy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-let skuMap = {}; // sku_id -> { name }
 async function loadSkuMaster() {
   try {
     const res = await fetch('sku_master.csv');
@@ -224,4 +151,51 @@ async function loadSkuMaster() {
   }
 }
 
+// ====== HELPERS ======
 
+function getLinesForTask(taskId) {
+  return appData.lines.filter(l => l.taskId === taskId);
+}
+
+function getBinUsedUnits(binId) {
+  return appData.lines
+    .filter(l => l.binId === binId)
+    .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+}
+
+// CSV download
+function downloadCsv(filename, rows) {
+  const csvContent =
+    rows
+      .map(row =>
+        row
+          .map(v => {
+            if (v == null) return '';
+            const s = String(v);
+            if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+              return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+          })
+          .join(',')
+      )
+      .join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function formatDateOnly(d) {
+  const dt = new Date(d);
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
