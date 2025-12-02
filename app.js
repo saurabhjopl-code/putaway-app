@@ -1,16 +1,13 @@
-// app.js
-
-// ====== CONFIG ======
+// ===== CONFIG =====
 const API_URL = 'https://script.google.com/macros/s/AKfycbwZPCt39-pqFmpgiMwauMOotYYD_F_PoWiNDQZ0mVCjYAWDKyKcoPQN3D39Lt_n6OGu/exec';
 
-// ====== GLOBAL STATE ======
-let appData = { tasks: [], lines: [] }; // loaded from backend
+// ===== GLOBAL STATE =====
+let appData = { success: true, tasks: [], lines: [] };
 let binsMap = {}; // bin_id -> capacity
 let skuMap = {};  // sku_id -> { name }
 
-// ====== DEVICE ID (for scanner) ======
+// ===== DEVICE ID (for scanner) =====
 const DEVICE_KEY = 'putaway_device_id';
-
 function getDeviceId() {
   let id = localStorage.getItem(DEVICE_KEY);
   if (!id) {
@@ -20,18 +17,55 @@ function getDeviceId() {
   return id;
 }
 
-// ====== BACKEND CALLS ======
+// ===== USER (PIN login) =====
+const USER_KEY = 'putaway_current_user';
+
+function setCurrentUser(user) {
+  if (user) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } else {
+    localStorage.removeItem(USER_KEY);
+  }
+}
+
+function getCurrentUser() {
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to parse user', e);
+    return null;
+  }
+}
+
+// ===== BACKEND CALLS =====
+
+async function loginUser(pin) {
+  const payload = { action: 'login', pin };
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Login request failed');
+  const data = await res.json();
+  return data;
+}
 
 async function fetchAppData() {
   const res = await fetch(API_URL + '?action=getAppData');
   if (!res.ok) throw new Error('Failed to load app data');
-  appData = await res.json();
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  appData = data;
 }
 
-async function saveLineToBackend(deviceId, binId, skuId, qty) {
+async function saveLineToBackend(deviceId, userId, binId, skuId, qty) {
   const payload = {
     action: 'saveLine',
     deviceId,
+    userId,
     binId,
     skuId,
     qty
@@ -42,7 +76,9 @@ async function saveLineToBackend(deviceId, binId, skuId, qty) {
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error('Failed to save line');
-  return res.json(); // { success, taskId }
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data; // { success, taskId, lineId }
 }
 
 async function updateTaskStatusOnBackend(taskId, newStatus, closedBy) {
@@ -58,10 +94,38 @@ async function updateTaskStatusOnBackend(taskId, newStatus, closedBy) {
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error('Failed to update task status');
-  return res.json(); // e.g. { success, code }
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data; // { success, code }
 }
 
-// ====== BIN MASTER (bins.csv) ======
+async function updateLineOnBackend(lineId, qty) {
+  const payload = { action: 'updateLine', lineId, qty };
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to update line');
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data;
+}
+
+async function deleteLineOnBackend(lineId) {
+  const payload = { action: 'deleteLine', lineId };
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to delete line');
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Backend error');
+  return data;
+}
+
+// ===== BIN MASTER (bins.csv) =====
 
 async function loadBins() {
   const res = await fetch('bins.csv');
@@ -90,7 +154,6 @@ async function loadBins() {
   }
 
   binsMap = {};
-
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(/,|\t/).map(c => c.trim());
     if (!cols[binIdx]) continue;
@@ -98,11 +161,10 @@ async function loadBins() {
     const cap = parseInt(cols[capIdx] || '0', 10) || 0;
     binsMap[binId] = cap;
   }
-
   console.log('Loaded bins:', binsMap);
 }
 
-// ====== SKU MASTER (sku_master.csv) ======
+// ===== SKU MASTER (sku_master.csv) =====
 
 async function loadSkuMaster() {
   try {
@@ -151,7 +213,7 @@ async function loadSkuMaster() {
   }
 }
 
-// ====== HELPERS ======
+// ===== APP DATA HELPERS =====
 
 function getLinesForTask(taskId) {
   return appData.lines.filter(l => l.taskId === taskId);
@@ -163,7 +225,6 @@ function getBinUsedUnits(binId) {
     .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
 }
 
-// CSV download
 function downloadCsv(filename, rows) {
   const csvContent =
     rows
