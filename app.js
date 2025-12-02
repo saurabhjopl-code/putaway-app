@@ -47,23 +47,43 @@ async function loadBins() {
   const res = await fetch('bins.csv');
   if (!res.ok) throw new Error('Unable to load bins.csv');
   const text = await res.text();
-  const lines = text.trim().split('\n');
-  const header = lines[0].split(',');
-  const binIdx = header.indexOf('bin_id');
-  const capIdx = header.indexOf('capacity');
+
+  // Split lines robustly for Windows/Unix line endings
+  const lines = text
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  if (lines.length === 0) {
+    throw new Error('bins.csv is empty');
+  }
+
+  // Split header and trim + strip BOM + accept comma or tab
+  const rawHeader = lines[0].split(/,|\t/).map(h =>
+    h.replace(/^\uFEFF/, '').trim().toLowerCase()
+  );
+
+  const binIdx = rawHeader.indexOf('bin_id');
+  const capIdx = rawHeader.indexOf('capacity');
+
   if (binIdx === -1 || capIdx === -1) {
+    console.error('Header parsed as:', rawHeader);
     throw new Error('bins.csv must have bin_id,capacity headers');
   }
+
   binsMap = {};
+
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',');
-    const binId = cols[binIdx].trim();
-    const cap = parseInt(cols[capIdx].trim(), 10) || 0;
-    if (binId) {
-      binsMap[binId] = cap;
-    }
+    const cols = lines[i].split(/,|\t/).map(c => c.trim());
+    if (!cols[binIdx]) continue;
+    const binId = cols[binIdx];
+    const cap = parseInt(cols[capIdx] || '0', 10) || 0;
+    binsMap[binId] = cap;
   }
+
+  console.log('Loaded bins:', binsMap);
 }
+
 
 // ---- Task helpers ----
 
@@ -156,3 +176,4 @@ function formatDateOnly(d) {
   const dd = String(dt.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
+
