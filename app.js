@@ -57,9 +57,21 @@ async function fetchAppData() {
   const res = await fetch(API_URL + '?action=getAppData');
   if (!res.ok) throw new Error('Failed to load app data');
   const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Backend error');
-  appData = data;
+
+  // Support both shapes:
+  // 1) {tasks, lines}
+  // 2) {success, tasks, lines}
+  if (data.tasks && data.lines) {
+    appData = {
+      success: data.success !== false, // default true
+      tasks: data.tasks,
+      lines: data.lines
+    };
+  } else {
+    throw new Error('Unexpected backend response format');
+  }
 }
+
 
 async function saveLineToBackend(deviceId, userId, binId, skuId, qty) {
   const payload = {
@@ -260,3 +272,4 @@ function formatDateOnly(d) {
   const dd = String(dt.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 }
+
