@@ -284,6 +284,8 @@ async function initScanner() {
   const scanBinBtn = document.getElementById('scanBinBtn');
   const scanSkuBtn = document.getElementById('scanSkuBtn');
   const resetBinBtn = document.getElementById('resetBinBtn');
+  const setBinBtn = document.getElementById('setBinBtn');
+
 
   if (binInput) {
     binInput.focus();
@@ -291,7 +293,7 @@ async function initScanner() {
       if (e.key === 'Enter') onBinScanned();
     });
   }
-
+  setBinBtn && setBinBtn.addEventListener('click', onBinScanned);
   saveLineBtn && saveLineBtn.addEventListener('click', onSaveLine);
   binCompleteBtn && binCompleteBtn.addEventListener('click', onBinComplete);
   finishTaskBtn && finishTaskBtn.addEventListener('click', onFinishTask);
@@ -1071,3 +1073,4 @@ async function exportReportCsv() {
   const filename = `daily_stock_${dateStr}.csv`;
   downloadCsv(filename, rows);
 }
+
