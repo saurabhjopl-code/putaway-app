@@ -48,7 +48,7 @@ async function saveLineToBackend(deviceId, binId, skuId, qty) {
   };
   const res = await fetch(API_URL, {
     method: 'POST',
-    // IMPORTANT: no Content-Type header (avoids CORS preflight)
+    // IMPORTANT: no Content-Type header (avoids CORS preflight issues)
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error('Failed to save line');
@@ -249,16 +249,16 @@ async function initScanner() {
   const statusEl = document.getElementById('statusMessage');
 
   try {
-    statusEl.textContent = 'Loading bins & SKUs...';
+    if (statusEl) statusEl.textContent = 'Loading bins & SKUs...';
     await loadBins();
     await loadSkuMaster();
 
     scannerDeviceId = getDeviceId();
 
-    statusEl.textContent = 'Loading data from backend...';
+    if (statusEl) statusEl.textContent = 'Loading data from backend...';
     await fetchAppData();
 
-    // try to reuse existing IN_PROGRESS task for this device
+    // reuse existing IN_PROGRESS task for this device, if any
     const existing = appData.tasks.find(
       t => t.status === 'IN_PROGRESS' && t.scannerDeviceId === scannerDeviceId
     );
@@ -269,9 +269,10 @@ async function initScanner() {
     showStatus('Ready.', false);
   } catch (e) {
     console.error(e);
-    statusEl.textContent = 'Error: ' + e.message;
-    statusEl.classList.add('error');
-    // continue to attach handlers
+    if (statusEl) {
+      statusEl.textContent = 'Error: ' + e.message;
+      statusEl.classList.add('error');
+    }
   }
 
   const binInput = document.getElementById('binInput');
@@ -282,29 +283,40 @@ async function initScanner() {
   const finishTaskBtn = document.getElementById('finishTaskBtn');
   const scanBinBtn = document.getElementById('scanBinBtn');
   const scanSkuBtn = document.getElementById('scanSkuBtn');
+  const resetBinBtn = document.getElementById('resetBinBtn');
 
-  binInput.focus();
+  if (binInput) {
+    binInput.focus();
+    binInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') onBinScanned();
+    });
+  }
 
-  binInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') onBinScanned();
-  });
+  saveLineBtn && saveLineBtn.addEventListener('click', onSaveLine);
+  binCompleteBtn && binCompleteBtn.addEventListener('click', onBinComplete);
+  finishTaskBtn && finishTaskBtn.addEventListener('click', onFinishTask);
 
-  saveLineBtn.addEventListener('click', onSaveLine);
-  binCompleteBtn.addEventListener('click', onBinComplete);
-  finishTaskBtn.addEventListener('click', onFinishTask);
+  if (skuInput) {
+    skuInput.addEventListener('input', () => {
+      updateSkuHint(skuInput.value.trim());
+    });
+    skuInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') qtyInput && qtyInput.focus();
+    });
+  }
 
-  skuInput.addEventListener('input', () => {
-    updateSkuHint(skuInput.value.trim());
-  });
-  skuInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') qtyInput.focus();
-  });
-  qtyInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') onSaveLine();
-  });
+  if (qtyInput) {
+    qtyInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') onSaveLine();
+    });
+  }
 
-  scanBinBtn.addEventListener('click', () => startScanner('bin'));
-  scanSkuBtn.addEventListener('click', () => startScanner('sku'));
+  scanBinBtn && scanBinBtn.addEventListener('click', () => startScanner('bin'));
+  scanSkuBtn && scanSkuBtn.addEventListener('click', () => startScanner('sku'));
+  resetBinBtn && resetBinBtn.addEventListener('click', resetBinSelection);
+
+  // initial UI: only bin card active
+  resetBinSelection(true); // true = don't override status text
 }
 
 function showStatus(msg, isError = false) {
@@ -417,8 +429,44 @@ function refreshBinLinesTable() {
   });
 }
 
+function resetBinSelection(keepStatus = false) {
+  const binInput = document.getElementById('binInput');
+  const resetBinBtn = document.getElementById('resetBinBtn');
+  const scanStoreCard = document.getElementById('scanStoreCard');
+  const reviewCard = document.getElementById('reviewCard');
+  const tbody = document.querySelector('#binLinesTable tbody');
+
+  currentBinId = null;
+
+  if (binInput) {
+    binInput.value = '';
+    binInput.readOnly = false;
+  }
+  if (resetBinBtn) {
+    resetBinBtn.style.display = 'none';
+  }
+  if (scanStoreCard) {
+    scanStoreCard.style.display = 'none';
+  }
+  if (reviewCard) {
+    reviewCard.style.display = 'none';
+  }
+  if (tbody) {
+    tbody.innerHTML = '';
+  }
+
+  refreshBinUsage();
+  if (!keepStatus) {
+    setBinStatus('Scan Bin to start.', false);
+  }
+}
+
 async function onBinScanned() {
   const binInput = document.getElementById('binInput');
+  const scanStoreCard = document.getElementById('scanStoreCard');
+  const reviewCard = document.getElementById('reviewCard');
+  const resetBinBtn = document.getElementById('resetBinBtn');
+
   const binId = binInput.value.trim();
 
   if (!binId) {
@@ -442,7 +490,14 @@ async function onBinScanned() {
   refreshBinUsage();
   refreshBinLinesTable();
 
-  document.getElementById('skuInput').focus();
+  // lock bin & show other sections
+  if (binInput) binInput.readOnly = true;
+  if (resetBinBtn) resetBinBtn.style.display = 'inline-flex';
+  if (scanStoreCard) scanStoreCard.style.display = 'block';
+  if (reviewCard) reviewCard.style.display = 'block';
+
+  const skuInput = document.getElementById('skuInput');
+  skuInput && skuInput.focus();
 }
 
 async function onSaveLine() {
@@ -508,14 +563,9 @@ async function onBinComplete() {
     setBinStatus('No active bin to complete.', true);
     return;
   }
-  setBinStatus(`Bin ${currentBinId} completed. Scan next bin.`, false);
-  currentBinId = null;
-  const binInput = document.getElementById('binInput');
-  if (binInput) binInput.value = '';
-  refreshBinUsage();
-  const tbody = document.querySelector('#binLinesTable tbody');
-  if (tbody) tbody.innerHTML = '';
-  binInput && binInput.focus();
+  const finishedBin = currentBinId;
+  resetBinSelection(true); // keep status, override text below
+  setBinStatus(`Bin ${finishedBin} completed. Scan next bin.`, false);
 }
 
 async function onFinishTask() {
@@ -538,12 +588,16 @@ async function onFinishTask() {
     currentTaskId = null;
     currentBinId = null;
     const binInput = document.getElementById('binInput');
-    if (binInput) binInput.value = '';
+    if (binInput) {
+      binInput.value = '';
+      binInput.readOnly = false;
+    }
     refreshBinUsage();
     const tbody = document.querySelector('#binLinesTable tbody');
     if (tbody) tbody.innerHTML = '';
     await fetchAppData();
     refreshTaskSummary();
+    resetBinSelection(false);
   } catch (e) {
     console.error(e);
     showStatus('Error: ' + e.message, true);
@@ -636,7 +690,7 @@ function startScanner(target) {
             skuInput.value = decodedText.trim();
             updateSkuHint(decodedText.trim());
             const qtyInput = document.getElementById('qtyInput');
-            qtyInput.focus();
+            qtyInput && qtyInput.focus();
           }
           stopScanner();
         },
