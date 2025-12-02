@@ -3,12 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <title>Scanner - Putaway App</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <link rel="stylesheet" href="style.css">
   <script src="app.js"></script>
 </head>
 <body>
   <h1>Scanner</h1>
   <p><a href="index.html">&larr; Back</a></p>
+  <div class="card">
+    <h2>Camera Scanner</h2>
+    <p>
+      <button id="scanBinBtn">Scan Bin with Camera</button>
+      <button id="scanSkuBtn">Scan SKU with Camera</button>
+    </p>
+    <div id="qrReader" style="width: 100%; max-width: 400px;"></div>
+    <p><small>Allow camera permission when prompted.</small></p>
+  </div>
 
   <div class="card">
     <h2>Current Task</h2>
@@ -47,6 +57,11 @@
       try {
         statusEl.textContent = 'Loading bins...';
         await loadBins();
+      const scanBinBtn = document.getElementById('scanBinBtn');
+      const scanSkuBtn = document.getElementById('scanSkuBtn');
+
+      scanBinBtn.addEventListener('click', () => startScanner('bin'));
+      scanSkuBtn.addEventListener('click', () => startScanner('sku'));
 
         deviceId = getDeviceId();
         appData = loadAppData();
@@ -197,8 +212,61 @@
       currentTask = getOrCreateInProgressTask(appData, deviceId);
       refreshTaskSummary();
     }
+    // ---- Camera barcode scanning ----
+    let html5QrCode = null;
+    let currentScanTarget = null; // 'bin' or 'sku';
+
+    function startScanner(target) {
+      currentScanTarget = target;
+      const qrDivId = "qrReader";
+
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode(qrDivId);
+      }
+
+      Html5Qrcode.getCameras().then(devices => {
+        if (!devices || devices.length === 0) {
+          showStatus("No camera found", true);
+          return;
+        }
+        const cameraId = devices[0].id;
+        html5QrCode
+          .start(
+            cameraId,
+            { fps: 10, qrbox: 250 },
+            decodedText => {
+              if (currentScanTarget === 'bin') {
+                document.getElementById('binInput').value = decodedText.trim();
+                document.getElementById('skuInput').focus();
+              } else if (currentScanTarget === 'sku') {
+                document.getElementById('skuInput').value = decodedText.trim();
+                document.getElementById('qtyInput').focus();
+              }
+              stopScanner();
+            },
+            errorMessage => {
+              // ignore per-frame errors
+            }
+          )
+          .catch(err => {
+            console.error(err);
+            showStatus("Error starting camera: " + err, true);
+          });
+      }).catch(err => {
+        console.error(err);
+        showStatus("Unable to access camera: " + err, true);
+      });
+    }
+
+    function stopScanner() {
+      if (html5QrCode) {
+        html5QrCode.stop().catch(err => console.error('Stop error', err));
+      }
+      currentScanTarget = null;
+    }
 
     window.addEventListener('load', initScanner);
   </script>
 </body>
 </html>
+
