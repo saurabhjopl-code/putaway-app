@@ -81,6 +81,7 @@ label {
 }
 
 input[type="text"],
+input[type="password"],
 input[type="number"],
 input[type="date"],
 select {
@@ -166,6 +167,73 @@ th {
 
 small {
   color: #777;
+}
+
+/* Home page specific */
+
+.home-card {
+  text-align: center;
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+
+.home-subtitle {
+  margin-top: 4px;
+  margin-bottom: 20px;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.role-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.role-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  text-decoration: none;
+  font-weight: 500;
+  border: none;
+}
+
+.role-btn.primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.role-btn.secondary {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.role-btn:hover {
+  opacity: 0.9;
+}
+
+.role-btn:active {
+  transform: scale(0.98);
+}
+
+.home-footer-note {
+  margin-top: 6px;
+  color: #777;
+  font-size: 0.8rem;
+}
+
+/* Review table scroll */
+
+.review-table-container {
+  max-height: 250px;
+  overflow-y: auto;
 }
 
 /* mobile */
