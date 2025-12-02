@@ -8,14 +8,13 @@
 </head>
 <body>
   <div class="app-header">
-  <img src="logo.png" alt="Logo" onerror="this.style.display='none'">
-  <div class="app-header-title">
-    <span>RAJNANDINI FASHION LIMITED INDIA</span>
-    <span>Warehouse Putaway System</span>
+    <img src="logo.png" alt="Logo" onerror="this.style.display='none'">
+    <div class="app-header-title">
+      <span>RAJNANDINI FASHION LIMITED INDIA</span>
+      <span>Warehouse Putaway System – Entry / Supervisor</span>
+    </div>
   </div>
-</div>
 
-  <h1>Entry / Supervisor</h1>
   <p><a href="index.html">&larr; Back</a></p>
 
   <div class="card">
@@ -40,8 +39,8 @@
   <div class="card" id="taskDetailsCard" style="display:none;">
     <h2>Task Details: <span id="detailsTaskCode"></span></h2>
     <p>
-      <button id="exportTaskBtn">Export Task to CSV</button>
-      <button id="closeTaskBtn">Mark as Closed</button>
+      <button id="exportTaskBtn" class="secondary">Export Task to CSV</button>
+      <button id="closeTaskBtn" class="accent">Mark as Closed</button>
     </p>
     <table id="taskLinesTable">
       <thead>
@@ -62,8 +61,8 @@
     <h2>Daily Stock Report (Closed Tasks)</h2>
     <label for="reportDate">Date</label>
     <input type="date" id="reportDate">
-    <button id="runReportBtn">Run Report</button>
-    <button id="exportReportBtn">Export Report to CSV</button>
+    <button id="runReportBtn" class="primary">Run Report</button>
+    <button id="exportReportBtn" class="secondary">Export Report to CSV</button>
 
     <div id="reportStatus" class="status"></div>
 
@@ -86,38 +85,73 @@
       <thead>
         <tr>
           <th>Bin</th>
-          <th>Units</hth>
+          <th>Units</th>
         </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 
+  <div class="card">
+    <h2>SKU Master Lookup</h2>
+    <label for="skuSearchInput">Search SKU</label>
+    <input type="text" id="skuSearchInput" placeholder="Type SKU ID">
+    <div id="skuSearchResult" class="status"></div>
+  </div>
+
   <script>
-    let appDataEntry;
     let selectedTaskId = null;
 
-    function initEntry() {
-      appDataEntry = loadAppData();
-      refreshOpenTaskList();
+    async function initEntry() {
+      try {
+        await loadSkuMaster();
+        await fetchAppData();
 
-      const todayStr = formatDateOnly(new Date());
-      document.getElementById('reportDate').value = todayStr;
+        const todayStr = formatDateOnly(new Date());
+        document.getElementById('reportDate').value = todayStr;
 
+        refreshOpenTaskList();
+        attachHandlers();
+        await runReport();
+      } catch (e) {
+        console.error(e);
+        document.getElementById('taskListStatus').textContent =
+          'Error loading data: ' + e.message;
+        document.getElementById('taskListStatus').classList.add('error');
+      }
+    }
+
+    function attachHandlers() {
       document.getElementById('runReportBtn').addEventListener('click', runReport);
       document.getElementById('exportReportBtn').addEventListener('click', exportReportCsv);
       document.getElementById('exportTaskBtn').addEventListener('click', exportSelectedTask);
       document.getElementById('closeTaskBtn').addEventListener('click', closeSelectedTask);
 
-      runReport(); // default
+      const skuSearchInput = document.getElementById('skuSearchInput');
+      skuSearchInput.addEventListener('input', () => {
+        const val = skuSearchInput.value.trim();
+        const resultEl = document.getElementById('skuSearchResult');
+        if (!val) {
+          resultEl.textContent = '';
+          resultEl.classList.remove('error');
+          return;
+        }
+        const info = skuMap[val];
+        if (info) {
+          resultEl.textContent = `${val} – ${info.name}`;
+          resultEl.classList.remove('error');
+        } else {
+          resultEl.textContent = `${val} not found in SKU master`;
+          resultEl.classList.add('error');
+        }
+      });
     }
 
     function refreshOpenTaskList() {
-      appDataEntry = loadAppData(); // reload
       const tbody = document.querySelector('#taskTable tbody');
       tbody.innerHTML = '';
 
-      const openTasks = appDataEntry.tasks.filter(t => t.status === 'OPEN');
+      const openTasks = appData.tasks.filter(t => t.status === 'OPEN');
       const statusEl = document.getElementById('taskListStatus');
 
       if (openTasks.length === 0) {
@@ -129,16 +163,16 @@
       }
 
       openTasks.forEach(task => {
-        const lines = getLinesForTask(appDataEntry, task.id);
+        const lines = getLinesForTask(task.id);
         const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${task.code || '-'}</td>
-          <td>${task.createdAt ? task.createdAt.replace('T', ' ').substring(0, 16) : ''}</td>
+          <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
           <td>${lines.length}</td>
           <td>${totalUnits}</td>
-          <td><button data-task-id="${task.id}" class="viewTaskBtn">View</button></td>
+          <td><button data-task-id="${task.id}" class="viewTaskBtn secondary">View</button></td>
         `;
         tbody.appendChild(tr);
       });
@@ -150,12 +184,9 @@
         });
       });
 
-      // Hide details if selected task is no longer open
       if (selectedTaskId) {
         const stillOpen = openTasks.find(t => t.id === selectedTaskId);
-        if (!stillOpen) {
-          hideTaskDetails();
-        }
+        if (!stillOpen) hideTaskDetails();
       }
     }
 
@@ -165,7 +196,7 @@
       const codeEl = document.getElementById('detailsTaskCode');
       const tbody = document.querySelector('#taskLinesTable tbody');
 
-      const task = appDataEntry.tasks.find(t => t.id === taskId);
+      const task = appData.tasks.find(t => t.id === taskId);
       if (!task || task.status !== 'OPEN') {
         alert('Task is not open or not found.');
         hideTaskDetails();
@@ -173,7 +204,7 @@
         return;
       }
 
-      const lines = getLinesForTask(appDataEntry, task.id);
+      const lines = getLinesForTask(task.id);
 
       card.style.display = 'block';
       codeEl.textContent = task.code || '-';
@@ -185,7 +216,7 @@
           <td>${line.binId}</td>
           <td>${line.skuId}</td>
           <td>${line.qty}</td>
-          <td>${line.scannedAt.replace('T', ' ').substring(0, 16)}</td>
+          <td>${String(line.scannedAt).replace('T', ' ').substring(0, 16)}</td>
         `;
         tbody.appendChild(tr);
       });
@@ -201,12 +232,12 @@
         alert('No task selected.');
         return;
       }
-      const task = appDataEntry.tasks.find(t => t.id === selectedTaskId);
+      const task = appData.tasks.find(t => t.id === selectedTaskId);
       if (!task) {
         alert('Task not found.');
         return;
       }
-      const lines = getLinesForTask(appDataEntry, task.id);
+      const lines = getLinesForTask(task.id);
 
       const rows = [];
       rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at']);
@@ -218,7 +249,7 @@
       downloadCsv(filename, rows);
     }
 
-    function closeSelectedTask() {
+    async function closeSelectedTask() {
       if (!selectedTaskId) {
         alert('No task selected.');
         return;
@@ -226,7 +257,7 @@
       if (!confirm('Mark this task as CLOSED? You will not see it again.')) {
         return;
       }
-      const task = appDataEntry.tasks.find(t => t.id === selectedTaskId);
+      const task = appData.tasks.find(t => t.id === selectedTaskId);
       if (!task) {
         alert('Task not found.');
         return;
@@ -236,18 +267,24 @@
         return;
       }
 
-      task.status = 'CLOSED';
-      task.closedAt = new Date().toISOString();
-      task.closedBy = 'ENTRY_USER'; // optional: replace with real user id
-      saveAppData(appDataEntry);
+      try {
+        const resp = await updateTaskStatusOnBackend(task.id, 'CLOSED', 'ENTRY_USER');
+        if (!resp.success) {
+          alert('Failed to close task on server.');
+          return;
+        }
 
-      hideTaskDetails();
-      refreshOpenTaskList();
-      runReport(); // refresh report
+        await fetchAppData();
+        hideTaskDetails();
+        refreshOpenTaskList();
+        await runReport();
+      } catch (e) {
+        console.error(e);
+        alert('Error: ' + e.message);
+      }
     }
 
-    function runReport() {
-      appDataEntry = loadAppData();
+    async function runReport() {
       const dateStr = document.getElementById('reportDate').value;
       const statusEl = document.getElementById('reportStatus');
       const bySkuBody = document.querySelector('#reportBySkuTable tbody');
@@ -264,9 +301,10 @@
         return;
       }
 
-      // Collect CLOSED tasks on that date
+      await fetchAppData(); // refresh before report
+
       const targetDate = dateStr;
-      const closedTasks = appDataEntry.tasks.filter(
+      const closedTasks = appData.tasks.filter(
         t =>
           t.status === 'CLOSED' &&
           t.closedAt &&
@@ -280,9 +318,8 @@
         return;
       }
 
-      // Aggregate from lines
       const closedTaskIds = new Set(closedTasks.map(t => t.id));
-      const relevantLines = appDataEntry.lines.filter(l =>
+      const relevantLines = appData.lines.filter(l =>
         closedTaskIds.has(l.taskId)
       );
 
@@ -320,16 +357,16 @@
       statusEl.classList.remove('error');
     }
 
-    function exportReportCsv() {
+    async function exportReportCsv() {
       const dateStr = document.getElementById('reportDate').value;
       if (!dateStr) {
         alert('Select a date first.');
         return;
       }
 
-      // Same logic as runReport to gather relevant lines
-      appDataEntry = loadAppData();
-      const closedTasks = appDataEntry.tasks.filter(
+      await fetchAppData();
+
+      const closedTasks = appData.tasks.filter(
         t =>
           t.status === 'CLOSED' &&
           t.closedAt &&
@@ -341,14 +378,14 @@
       }
 
       const closedTaskIds = new Set(closedTasks.map(t => t.id));
-      const relevantLines = appDataEntry.lines.filter(l =>
+      const relevantLines = appData.lines.filter(l =>
         closedTaskIds.has(l.taskId)
       );
 
       const rows = [];
       rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at', 'closed_at']);
       relevantLines.forEach(l => {
-        const task = appDataEntry.tasks.find(t => t.id === l.taskId);
+        const task = appData.tasks.find(t => t.id === l.taskId);
         rows.push([
           task ? task.code : '',
           l.binId,
@@ -367,4 +404,3 @@
   </script>
 </body>
 </html>
-
