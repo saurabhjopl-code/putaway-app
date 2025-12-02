@@ -19,54 +19,84 @@
 
 <p><a href="index.html">&larr; Home</a></p>
 
+<!-- Task summary -->
 <div class="card">
   <h2>Current Task</h2>
   <p>Task Code: <strong id="taskCodeLabel">[Not generated yet]</strong></p>
   <p>Lines: <span id="taskLineCount">0</span> | Units: <span id="taskUnitCount">0</span></p>
 </div>
 
+<!-- BIN selection (shown at start) -->
 <div class="card">
-  <h2>Current Bin</h2>
-  <p id="binStatus"></p>
-  <input type="text" id="binInput" placeholder="Scan Bin">
-  <p>Capacity: <span id="binCapacity">0</span> | Used: <span id="binUsed">0</span> | Free: <span id="binFree">0</span></p>
+  <h2>Select Bin</h2>
+  <p id="binStatus" class="status"></p>
+
+  <label for="binInput">Bin ID</label>
+  <input type="text" id="binInput" placeholder="Scan or type Bin ID" autocomplete="off">
+
+  <p style="margin-top:8px;">
+    <button id="scanBinBtn" class="secondary">Scan Bin with Camera</button>
+    <button id="resetBinBtn" class="secondary" style="display:none;">Reset Bin</button>
+  </p>
+
+  <p style="margin-top:8px;">
+    Capacity: <span id="binCapacity">0</span> |
+    Used: <span id="binUsed">0</span> |
+    Free: <span id="binFree">0</span>
+  </p>
 </div>
 
-<div class="card">
-  <h2>Scan & Store</h2>
-  <p id="statusMessage"></p>
+<!-- Scan & Store (hidden until bin selected) -->
+<div class="card" id="scanStoreCard" style="display:none;">
+  <h2>Scan & Store (Current Bin)</h2>
+  <p id="statusMessage" class="status"></p>
 
-  <input type="text" id="skuInput" placeholder="Scan SKU">
+  <label for="skuInput">SKU ID</label>
+  <input type="text" id="skuInput" placeholder="Scan or type SKU ID" autocomplete="off">
   <div id="skuNameHint"><small>SKU: -</small></div>
 
-  <input type="number" id="qtyInput" placeholder="Qty">
+  <label for="qtyInput">Quantity</label>
+  <input type="number" id="qtyInput" min="1" inputmode="numeric" placeholder="Enter quantity">
 
-  <button id="saveLineBtn" class="primary">Save Line</button>
-  <button id="binCompleteBtn" class="secondary">Bin Complete</button>
-  <button id="finishTaskBtn" class="accent">Finish Task</button>
+  <p style="margin-top:8px;">
+    <button id="scanSkuBtn" class="secondary">Scan SKU with Camera</button>
+  </p>
+
+  <p style="margin-top:8px;">
+    <button id="saveLineBtn" class="primary">Save Line</button>
+    <button id="binCompleteBtn" class="secondary">Bin Complete</button>
+    <button id="finishTaskBtn" class="accent">Finish Task</button>
+  </p>
 </div>
 
-<div class="card">
-  <h2>Camera Scanner</h2>
-  <button id="scanBinBtn" class="secondary">Scan Bin with Camera</button>
-  <button id="scanSkuBtn" class="secondary">Scan SKU with Camera</button>
-  <div id="qrReader" style="width:100%;max-width:350px;"></div>
-</div>
-
-<div class="card">
-  <h2>Review</h2>
+<!-- Review (hidden until bin selected) -->
+<div class="card" id="reviewCard" style="display:none;">
+  <h2>Current Bin Lines (Review & Edit)</h2>
   <div class="review-table-container">
     <table id="binLinesTable">
       <thead>
-        <tr><th>#</th><th>SKU</th><th>Qty</th><th>Time</th><th>Actions</th></tr>
+        <tr>
+          <th>#</th>
+          <th>SKU</th>
+          <th>Qty</th>
+          <th>Time</th>
+          <th>Actions</th>
+        </tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 </div>
 
+<!-- Shared camera preview -->
+<div class="card">
+  <h2>Camera</h2>
+  <div id="qrReader" style="width:100%;max-width:350px;"></div>
+  <p><small>Use "Scan Bin with Camera" or "Scan SKU with Camera" buttons above.</small></p>
+</div>
+
 <script>
-window.addEventListener('load', initScanner);
+  window.addEventListener('load', initScanner);
 </script>
 
 </body>
