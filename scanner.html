@@ -65,6 +65,11 @@
       try {
         statusEl.textContent = 'Loading bins...';
         await loadBins();
+                await loadSkuMaster();
+    <label for="skuInput">SKU ID (scan barcode)</label>
+    <input type="text" id="skuInput" autocomplete="off">
+    <div id="skuNameHint"><small>SKU: -</small></div>
+
       const scanBinBtn = document.getElementById('scanBinBtn');
       const scanSkuBtn = document.getElementById('scanSkuBtn');
 
@@ -277,5 +282,6 @@
   </script>
 </body>
 </html>
+
 
 
