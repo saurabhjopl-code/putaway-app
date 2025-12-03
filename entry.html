@@ -20,8 +20,12 @@
 
 <!-- Open tasks today -->
 <div class="card">
-  <h2>Open Tasks (Today)</h2>
+  <h2 class="title-orange">Open Tasks (Today)</h2>
   <p id="taskListStatus"></p>
+  <p style="margin-bottom:8px;">
+    <button id="exportTodayAllBtn" class="secondary">Export All (Today)</button>
+    <button id="closeTodayAllBtn" class="accent">Close All (Today)</button>
+  </p>
   <table id="taskTable">
     <thead>
       <tr>
@@ -29,7 +33,7 @@
         <th>Created</th>
         <th>Lines</th>
         <th>Units</th>
-        <th>Action</th>
+        <th>View</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -60,10 +64,14 @@
   </table>
 </div>
 
-<!-- Pending open from previous days (quick view) -->
+<!-- Pending open from previous days -->
 <div class="card">
-  <h2>Pending Open Tasks (Previous Days)</h2>
+  <h2 class="title-red">Pending Open Tasks (Previous Days)</h2>
   <p id="pendingOldStatus"></p>
+  <p style="margin-bottom:8px;">
+    <button id="exportPendingAllBtn" class="secondary">Export All Pending</button>
+    <button id="closePendingAllBtn" class="accent">Close All Pending</button>
+  </p>
   <table id="pendingOldTable">
     <thead>
       <tr>
@@ -71,6 +79,7 @@
         <th>Created</th>
         <th>Lines</th>
         <th>Units</th>
+        <th>View</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -79,7 +88,7 @@
 
 <!-- Recently closed -->
 <div class="card">
-  <h2>Recently Closed (Last 10 Tasks)</h2>
+  <h2 class="title-green">Recently Closed (Last 10 Tasks)</h2>
   <p id="recentClosedStatus"></p>
   <table id="recentClosedTable">
     <thead>
@@ -89,31 +98,40 @@
         <th>Closed</th>
         <th>Lines</th>
         <th>Units</th>
+        <th>View</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
 </div>
 
-<!-- Task details -->
-<div class="card" id="taskDetailsCard" style="display:none;">
-  <h2>Task <span id="detailsTaskCode"></span></h2>
+<!-- Closed tasks date/range search -->
+<div class="card">
+  <h2>Closed Tasks – Date / Range Search</h2>
   <p>
-    <button id="exportTaskBtn" class="secondary">Export CSV</button>
-    <button id="closeTaskBtn" class="accent">Close Task</button>
+    <label for="closedFromDate">From:</label>
+    <input type="date" id="closedFromDate">
+    <label for="closedToDate">To:</label>
+    <input type="date" id="closedToDate">
+    <button id="closedSearchBtn" class="primary">Search</button>
+    <button id="closedExportBtn" class="secondary">Export Result CSV</button>
   </p>
-  <table id="taskLinesTable">
-    <thead>
-      <tr>
-        <th>Bin</th>
-        <th>SKU</th>
-        <th>Qty</th>
-        <th>Remarks</th>
-        <th>Time</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <p id="closedRangeStatus"></p>
+  <div class="review-table-container">
+    <table id="closedRangeTable">
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Created</th>
+          <th>Closed</th>
+          <th>Lines</th>
+          <th>Units</th>
+          <th>View</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 </div>
 
 <!-- Daily report -->
