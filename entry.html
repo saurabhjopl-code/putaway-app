@@ -18,26 +18,142 @@
 
 <p><a href="index.html">&larr; Home</a></p>
 
+<!-- Open tasks today -->
 <div class="card">
   <h2>Open Tasks (Today)</h2>
   <p id="taskListStatus"></p>
-  <table id="taskTable"><thead>
-    <tr><th>Task</th><th>Created</th><th>Lines</th><th>Units</th><th>Action</th></tr>
-  </thead><tbody></tbody></table>
+  <table id="taskTable">
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Created</th>
+        <th>Lines</th>
+        <th>Units</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 </div>
 
+<!-- All open tasks (any date) with bulk actions -->
+<div class="card">
+  <h2>All Open Tasks</h2>
+  <p id="allOpenStatus"></p>
+  <p style="margin-bottom:8px;">
+    <button id="bulkExportBtn" class="secondary">Export Selected Tasks</button>
+    <button id="bulkCloseBtn" class="accent">Close Selected Tasks</button>
+  </p>
+  <table id="allOpenTable">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="selectAllOpen"></th>
+        <th>Task</th>
+        <th>Created</th>
+        <th>Age (days)</th>
+        <th>Lines</th>
+        <th>Units</th>
+        <th>View</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<!-- Pending open from previous days (quick view) -->
+<div class="card">
+  <h2>Pending Open Tasks (Previous Days)</h2>
+  <p id="pendingOldStatus"></p>
+  <table id="pendingOldTable">
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Created</th>
+        <th>Lines</th>
+        <th>Units</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<!-- Recently closed -->
+<div class="card">
+  <h2>Recently Closed (Last 10 Tasks)</h2>
+  <p id="recentClosedStatus"></p>
+  <table id="recentClosedTable">
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Created</th>
+        <th>Closed</th>
+        <th>Lines</th>
+        <th>Units</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<!-- Task details -->
 <div class="card" id="taskDetailsCard" style="display:none;">
   <h2>Task <span id="detailsTaskCode"></span></h2>
-  <button id="exportTaskBtn" class="secondary">Export CSV</button>
-  <button id="closeTaskBtn" class="accent">Close Task</button>
+  <p>
+    <button id="exportTaskBtn" class="secondary">Export CSV</button>
+    <button id="closeTaskBtn" class="accent">Close Task</button>
+  </p>
+  <table id="taskLinesTable">
+    <thead>
+      <tr>
+        <th>Bin</th>
+        <th>SKU</th>
+        <th>Qty</th>
+        <th>Remarks</th>
+        <th>Time</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
-  <table id="taskLinesTable"><thead>
-    <tr><th>Bin</th><th>SKU</th><th>Qty</th><th>Time</th></tr>
-  </thead><tbody></tbody></table>
+<!-- Daily report -->
+<div class="card">
+  <h2>Daily Stock Added Report</h2>
+  <p>
+    <label for="reportDate">Date:</label>
+    <input type="date" id="reportDate">
+    <button id="runReportBtn" class="primary">Run Report</button>
+    <button id="exportReportBtn" class="secondary">Export CSV</button>
+  </p>
+  <p id="reportStatus"></p>
+  <p>Total Units: <span id="reportTotalUnits">0</span></p>
+
+  <h3>By SKU</h3>
+  <div class="review-table-container">
+    <table id="reportBySkuTable">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Units</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SKU master search -->
+<div class="card">
+  <h2>SKU Master Search</h2>
+  <p>
+    <label for="skuSearchInput">SKU ID:</label>
+    <input type="text" id="skuSearchInput" placeholder="Enter SKU ID">
+  </p>
+  <p id="skuSearchResult"></p>
 </div>
 
 <script>
-window.addEventListener('load', initEntry);
+  window.addEventListener('load', initEntry);
 </script>
 
 </body>
