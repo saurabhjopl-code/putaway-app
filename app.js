@@ -286,14 +286,15 @@ async function initScanner() {
   const resetBinBtn = document.getElementById('resetBinBtn');
   const setBinBtn = document.getElementById('setBinBtn');
 
-
   if (binInput) {
     binInput.focus();
     binInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') onBinScanned();
     });
   }
+
   setBinBtn && setBinBtn.addEventListener('click', onBinScanned);
+
   saveLineBtn && saveLineBtn.addEventListener('click', onSaveLine);
   binCompleteBtn && binCompleteBtn.addEventListener('click', onBinComplete);
   finishTaskBtn && finishTaskBtn.addEventListener('click', onFinishTask);
@@ -672,41 +673,71 @@ function startScanner(target) {
     html5QrCode = new Html5Qrcode(qrDivId);
   }
 
-  Html5Qrcode.getCameras().then(devices => {
-    if (!devices || devices.length === 0) {
-      showStatus("No camera found", true);
-      return;
+  const config = { fps: 10, qrbox: 250 };
+
+  const onScanSuccess = decodedText => {
+    const text = decodedText.trim();
+
+    if (currentScanTarget === 'bin') {
+      const binInput = document.getElementById('binInput');
+      if (binInput) {
+        binInput.value = text;
+        onBinScanned();
+      }
+    } else if (currentScanTarget === 'sku') {
+      const skuInput = document.getElementById('skuInput');
+      if (skuInput) {
+        skuInput.value = text;
+        updateSkuHint(text);
+        const qtyInput = document.getElementById('qtyInput');
+        qtyInput && qtyInput.focus();
+      }
     }
-    const cameraId = devices[0].id;
-    html5QrCode
-      .start(
-        cameraId,
-        { fps: 10, qrbox: 250 },
-        decodedText => {
-          if (currentScanTarget === 'bin') {
-            const binInput = document.getElementById('binInput');
-            binInput.value = decodedText.trim();
-            onBinScanned();
-          } else if (currentScanTarget === 'sku') {
-            const skuInput = document.getElementById('skuInput');
-            skuInput.value = decodedText.trim();
-            updateSkuHint(decodedText.trim());
-            const qtyInput = document.getElementById('qtyInput');
-            qtyInput && qtyInput.focus();
-          }
-          stopScanner();
-        },
-        errorMessage => {
-          // ignore per-frame errors
+
+    stopScanner();
+  };
+
+  const onScanError = errorMessage => {
+    // ignore per-frame scan errors
+  };
+
+  // 1️⃣ Try environment/back camera first
+  html5QrCode.start(
+    { facingMode: "environment" },
+    config,
+    onScanSuccess,
+    onScanError
+  ).catch(err => {
+    console.warn("Environment camera failed, falling back to device list:", err);
+
+    // 2️⃣ Fallback: pick device whose label looks like back/rear/environment
+    Html5Qrcode.getCameras()
+      .then(devices => {
+        if (!devices || devices.length === 0) {
+          showStatus("No camera found", true);
+          return;
         }
-      )
-      .catch(err => {
-        console.error(err);
-        showStatus("Error starting camera: " + err, true);
+
+        let preferred = devices.find(d =>
+          /back|rear|environment/i.test(d.label || "")
+        );
+
+        const cameraToUse = preferred || devices[0];
+
+        html5QrCode.start(
+          cameraToUse.id,
+          config,
+          onScanSuccess,
+          onScanError
+        ).catch(err2 => {
+          console.error(err2);
+          showStatus("Unable to start camera: " + err2, true);
+        });
+      })
+      .catch(err2 => {
+        console.error(err2);
+        showStatus("Unable to access camera: " + err2, true);
       });
-  }).catch(err => {
-    console.error(err);
-    showStatus("Unable to access camera: " + err, true);
   });
 }
 
@@ -1073,4 +1104,3 @@ async function exportReportCsv() {
   const filename = `daily_stock_${dateStr}.csv`;
   downloadCsv(filename, rows);
 }
-
