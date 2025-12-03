@@ -46,7 +46,6 @@ async function createTaskWithLinesOnBackend(deviceId, createdAt, lines) {
   };
   const res = await fetch(API_URL, {
     method: 'POST',
-    // no Content-Type header to avoid CORS preflight
     body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error('Failed to create task');
@@ -72,7 +71,7 @@ async function updateTaskStatusOnBackend(taskId, newStatus) {
   return data;
 }
 
-// (Supervisor-only helpers; not used on scanner page, but kept for future)
+// Optional line update/delete (not used on scanner page currently)
 async function updateLineOnBackend(lineId, qty) {
   const payload = { action: 'updateLine', lineId, qty };
   const res = await fetch(API_URL, {
@@ -226,17 +225,17 @@ function downloadCsv(filename, rows) {
 }
 
 function formatDateOnly(d) {
-  const dt = new Date(d);
-  const yyyy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  if (!d) return '';
+  const s = String(d);
+  // s is already IST-ISO-like "yyyy-MM-ddTHH:mm:ss"
+  return s.substring(0, 10);
 }
 
-function diffInDays(a, b) {
-  const one = new Date(a);
-  const two = new Date(b);
-  const ms = Math.abs(two - one);
+function diffInDays(dateStr1, dateStr2) {
+  if (!dateStr1 || !dateStr2) return '';
+  const d1 = new Date(dateStr1.substring(0, 10));
+  const d2 = new Date(dateStr2.substring(0, 10));
+  const ms = d2 - d1;
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
@@ -246,6 +245,7 @@ let scannerDeviceId;
 let currentBinId = null;
 let html5QrCode = null;
 let currentScanTarget = null; // 'bin' or 'sku'
+let cameraActive = false;
 
 // local-only draft task (fast scanning)
 let localTaskId = null;
@@ -291,10 +291,12 @@ async function initScanner() {
   const saveLineBtn = document.getElementById('saveLineBtn');
   const binCompleteBtn = document.getElementById('binCompleteBtn');
   const finishTaskBtn = document.getElementById('finishTaskBtn');
+  const finishTaskHeaderBtn = document.getElementById('finishTaskHeaderBtn');
   const scanBinBtn = document.getElementById('scanBinBtn');
   const scanSkuBtn = document.getElementById('scanSkuBtn');
   const resetBinBtn = document.getElementById('resetBinBtn');
   const setBinBtn = document.getElementById('setBinBtn');
+  const closeCameraBtn = document.getElementById('closeCameraBtn');
 
   if (binInput) {
     binInput.focus();
@@ -308,6 +310,7 @@ async function initScanner() {
   saveLineBtn && saveLineBtn.addEventListener('click', onSaveLine);
   binCompleteBtn && binCompleteBtn.addEventListener('click', onBinComplete);
   finishTaskBtn && finishTaskBtn.addEventListener('click', onFinishTask);
+  finishTaskHeaderBtn && finishTaskHeaderBtn.addEventListener('click', onFinishTask);
 
   if (skuInput) {
     skuInput.addEventListener('input', () => {
@@ -328,6 +331,10 @@ async function initScanner() {
   scanBinBtn && scanBinBtn.addEventListener('click', () => startScanner('bin'));
   scanSkuBtn && scanSkuBtn.addEventListener('click', () => startScanner('sku'));
   resetBinBtn && resetBinBtn.addEventListener('click', () => resetBinSelection(false));
+  closeCameraBtn && closeCameraBtn.addEventListener('click', () => {
+    stopScanner();
+    showStatus('Camera stopped.', false);
+  });
 
   // initial UI: only bin card active
   resetBinSelection(true);
@@ -369,6 +376,7 @@ function updateSkuHint(skuIdUpper) {
 function refreshTaskSummary() {
   const lineCountEl = document.getElementById('taskLineCount');
   const unitCountEl = document.getElementById('taskUnitCount');
+  const finishTaskHeaderBtn = document.getElementById('finishTaskHeaderBtn');
   if (!lineCountEl || !unitCountEl) return;
 
   const totalLines = localLines.length;
@@ -376,6 +384,10 @@ function refreshTaskSummary() {
 
   lineCountEl.textContent = totalLines;
   unitCountEl.textContent = totalUnits;
+
+  if (finishTaskHeaderBtn) {
+    finishTaskHeaderBtn.disabled = totalLines === 0;
+  }
 }
 
 function getBinUsedUnitsLocal(binId) {
@@ -711,6 +723,8 @@ function deleteLinePrompt(lineId) {
 function startScanner(target) {
   currentScanTarget = target;
   const qrDivId = "qrReader";
+  const cameraStatus = document.getElementById('cameraStatus');
+  const closeCameraBtn = document.getElementById('closeCameraBtn');
 
   if (!html5QrCode) {
     html5QrCode = new Html5Qrcode(qrDivId);
@@ -745,6 +759,12 @@ function startScanner(target) {
     // ignore per-frame errors
   };
 
+  if (cameraStatus) {
+    cameraStatus.innerHTML = `<small>Camera: Scanning for ${target.toUpperCase()}...</small>`;
+  }
+  if (closeCameraBtn) closeCameraBtn.style.display = 'inline-flex';
+  cameraActive = true;
+
   // Try environment/back camera first
   html5QrCode.start(
     { facingMode: "environment" },
@@ -758,6 +778,9 @@ function startScanner(target) {
       .then(devices => {
         if (!devices || devices.length === 0) {
           showStatus("No camera found", true);
+          if (cameraStatus) {
+            cameraStatus.innerHTML = '<small>No camera found.</small>';
+          }
           return;
         }
 
@@ -775,25 +798,40 @@ function startScanner(target) {
         ).catch(err2 => {
           console.error(err2);
           showStatus("Unable to start camera: " + err2, true);
+          if (cameraStatus) {
+            cameraStatus.innerHTML = '<small>Unable to start camera.</small>';
+          }
         });
       })
       .catch(err2 => {
         console.error(err2);
         showStatus("Unable to access camera: " + err2, true);
+        if (cameraStatus) {
+          cameraStatus.innerHTML = '<small>Unable to access camera.</small>';
+        }
       });
   });
 }
 
 function stopScanner() {
-  if (html5QrCode) {
+  const cameraStatus = document.getElementById('cameraStatus');
+  const closeCameraBtn = document.getElementById('closeCameraBtn');
+
+  if (html5QrCode && cameraActive) {
     html5QrCode.stop().catch(err => console.error('Stop error', err));
   }
   currentScanTarget = null;
+  cameraActive = false;
+
+  if (cameraStatus) {
+    cameraStatus.innerHTML = '<small>Camera idle.</small>';
+  }
+  if (closeCameraBtn) closeCameraBtn.style.display = 'none';
 }
 
 // ================== ENTRY / SUPERVISOR PAGE LOGIC ==================
 
-let selectedTaskId = null;
+let closedRangeTasks = []; // tasks in last range search
 
 // called from entry.html onload
 async function initEntry() {
@@ -801,7 +839,7 @@ async function initEntry() {
     await loadSkuMaster();
     await fetchAppData();
 
-    const todayStr = formatDateOnly(new Date());
+    const todayStr = formatDateOnly(new Date().toISOString());
     const reportDateInput = document.getElementById('reportDate');
     if (reportDateInput) reportDateInput.value = todayStr;
 
@@ -824,19 +862,27 @@ async function initEntry() {
 function attachEntryHandlers() {
   const runReportBtn = document.getElementById('runReportBtn');
   const exportReportBtn = document.getElementById('exportReportBtn');
-  const exportTaskBtn = document.getElementById('exportTaskBtn');
-  const closeTaskBtn = document.getElementById('closeTaskBtn');
   const skuSearchInput = document.getElementById('skuSearchInput');
   const bulkExportBtn = document.getElementById('bulkExportBtn');
   const bulkCloseBtn = document.getElementById('bulkCloseBtn');
   const selectAllOpen = document.getElementById('selectAllOpen');
+  const exportTodayAllBtn = document.getElementById('exportTodayAllBtn');
+  const closeTodayAllBtn = document.getElementById('closeTodayAllBtn');
+  const exportPendingAllBtn = document.getElementById('exportPendingAllBtn');
+  const closePendingAllBtn = document.getElementById('closePendingAllBtn');
+  const closedSearchBtn = document.getElementById('closedSearchBtn');
+  const closedExportBtn = document.getElementById('closedExportBtn');
 
   runReportBtn && runReportBtn.addEventListener('click', runReport);
   exportReportBtn && exportReportBtn.addEventListener('click', exportReportCsv);
-  exportTaskBtn && exportTaskBtn.addEventListener('click', exportSelectedTask);
-  closeTaskBtn && closeTaskBtn.addEventListener('click', closeSelectedTask);
   bulkExportBtn && bulkExportBtn.addEventListener('click', bulkExportSelectedTasks);
   bulkCloseBtn && bulkCloseBtn.addEventListener('click', bulkCloseSelectedTasks);
+  exportTodayAllBtn && exportTodayAllBtn.addEventListener('click', exportTodayAllTasks);
+  closeTodayAllBtn && closeTodayAllBtn.addEventListener('click', closeTodayAllTasks);
+  exportPendingAllBtn && exportPendingAllBtn.addEventListener('click', exportPendingAllTasks);
+  closePendingAllBtn && closePendingAllBtn.addEventListener('click', closePendingAllTasks);
+  closedSearchBtn && closedSearchBtn.addEventListener('click', runClosedRangeSearch);
+  closedExportBtn && closedExportBtn.addEventListener('click', exportClosedRangeCsv);
 
   if (selectAllOpen) {
     selectAllOpen.addEventListener('change', () => {
@@ -873,7 +919,7 @@ function refreshOpenTaskListToday() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const today = formatDateOnly(new Date());
+  const today = formatDateOnly(new Date().toISOString());
   const openTasksToday = appData.tasks.filter(t =>
     t.status === 'OPEN' &&
     t.createdAt &&
@@ -909,15 +955,9 @@ function refreshOpenTaskListToday() {
 
   tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-task-id');
-      showTaskDetails(id);
+      toggleOpenTaskDetailsInline(btn.getAttribute('data-task-id'), btn);
     });
   });
-
-  if (selectedTaskId) {
-    const stillOpen = openTasksToday.find(t => t.id === selectedTaskId);
-    if (!stillOpen) hideTaskDetails();
-  }
 }
 
 function refreshAllOpenTasks() {
@@ -938,7 +978,7 @@ function refreshAllOpenTasks() {
     }
   }
 
-  const todayStr = formatDateOnly(new Date());
+  const todayStr = formatDateOnly(new Date().toISOString());
 
   openTasks.forEach(task => {
     const lines = getLinesForTask(task.id);
@@ -960,8 +1000,7 @@ function refreshAllOpenTasks() {
 
   tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-task-id');
-      showTaskDetails(id);
+      toggleOpenTaskDetailsInline(btn.getAttribute('data-task-id'), btn);
     });
   });
 }
@@ -971,7 +1010,7 @@ function refreshPendingOldOpenTasks() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  const today = formatDateOnly(new Date());
+  const today = formatDateOnly(new Date().toISOString());
   const pendingOld = appData.tasks.filter(t =>
     t.status === 'OPEN' &&
     t.createdAt &&
@@ -999,8 +1038,15 @@ function refreshPendingOldOpenTasks() {
       <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
       <td>${lines.length}</td>
       <td>${totalUnits}</td>
+      <td><button data-task-id="${task.id}" class="viewTaskBtn secondary">View</button></td>
     `;
     tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleClosedTaskDetailsInline(btn.getAttribute('data-task-id'), btn, true);
+    });
   });
 }
 
@@ -1037,58 +1083,158 @@ function refreshRecentClosedTasks() {
       <td>${task.closedAt ? String(task.closedAt).replace('T', ' ').substring(0, 16) : ''}</td>
       <td>${lines.length}</td>
       <td>${totalUnits}</td>
+      <td><button data-task-id="${task.id}" class="viewTaskBtn secondary">View</button></td>
     `;
     tbody.appendChild(tr);
   });
+
+  tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleClosedTaskDetailsInline(btn.getAttribute('data-task-id'), btn, false);
+    });
+  });
 }
 
-function showTaskDetails(taskId) {
-  selectedTaskId = taskId;
-  const card = document.getElementById('taskDetailsCard');
-  const codeEl = document.getElementById('detailsTaskCode');
-  const tbody = document.querySelector('#taskLinesTable tbody');
-  if (!card || !tbody) return;
+// ===== INLINE TASK DETAILS (VIEW) =====
+
+function toggleOpenTaskDetailsInline(taskId, btn) {
+  const row = btn.closest('tr');
+  const tbody = row.parentElement;
+  const colSpan = row.children.length;
+
+  // single-open mode per table: remove all other details rows
+  Array.from(tbody.querySelectorAll('.details-row')).forEach(r => r.remove());
+
+  // if next row is already details for this task, collapse
+  const nextRow = row.nextElementSibling;
+  if (nextRow && nextRow.classList.contains('details-row') && nextRow.dataset.taskId === taskId) {
+    nextRow.remove();
+    return;
+  }
 
   const task = appData.tasks.find(t => t.id === taskId);
-  if (!task || task.status !== 'OPEN') {
-    alert('Task is not open or not found.');
-    hideTaskDetails();
-    refreshOpenTaskListToday();
-    refreshAllOpenTasks();
+  if (!task) {
+    alert('Task not found.');
+    return;
+  }
+  if (task.status !== 'OPEN') {
+    alert('Task is not OPEN.');
     return;
   }
 
-  const lines = getLinesForTask(task.id);
+  const lines = getLinesForTask(taskId);
 
-  card.style.display = 'block';
-  codeEl.textContent = task.code || '-';
+  const detailsRow = document.createElement('tr');
+  detailsRow.className = 'details-row';
+  detailsRow.dataset.taskId = taskId;
+  detailsRow.innerHTML = `
+    <td colspan="${colSpan}">
+      <div class="inline-task-details">
+        <p>
+          Task: <strong>${task.code || '-'}</strong>
+        </p>
+        <p style="margin-bottom:8px;">
+          <button class="secondary inlineExportBtn" data-task-id="${taskId}">Export Task</button>
+          <button class="accent inlineCloseBtn" data-task-id="${taskId}">Close Task</button>
+        </p>
+        <div class="review-table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Bin</th>
+                <th>SKU</th>
+                <th>Qty</th>
+                <th>Remarks</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lines.map(l => `
+                <tr>
+                  <td>${l.binId}</td>
+                  <td>${l.skuId}</td>
+                  <td>${l.qty}</td>
+                  <td>${l.remarks || ''}</td>
+                  <td>${String(l.scannedAt).replace('T', ' ').substring(0, 16)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </td>
+  `;
+  tbody.insertBefore(detailsRow, row.nextSibling);
 
-  tbody.innerHTML = '';
-  lines.forEach(line => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${line.binId}</td>
-      <td>${line.skuId}</td>
-      <td>${line.qty}</td>
-      <td>${line.remarks || ''}</td>
-      <td>${String(line.scannedAt).replace('T', ' ').substring(0, 16)}</td>
-    `;
-    tbody.appendChild(tr);
-  });
+  const expBtn = detailsRow.querySelector('.inlineExportBtn');
+  const closeBtn = detailsRow.querySelector('.inlineCloseBtn');
+  expBtn && expBtn.addEventListener('click', () => exportTaskCsv(taskId));
+  closeBtn && closeBtn.addEventListener('click', () => closeTask(taskId));
 }
 
-function hideTaskDetails() {
-  selectedTaskId = null;
-  const card = document.getElementById('taskDetailsCard');
-  if (card) card.style.display = 'none';
-}
+function toggleClosedTaskDetailsInline(taskId, btn, fromPendingSection) {
+  const row = btn.closest('tr');
+  const tbody = row.parentElement;
+  const colSpan = row.children.length;
 
-function exportSelectedTask() {
-  if (!selectedTaskId) {
-    alert('No task selected.');
+  // single-open mode per table
+  Array.from(tbody.querySelectorAll('.details-row')).forEach(r => r.remove());
+
+  const nextRow = row.nextElementSibling;
+  if (nextRow && nextRow.classList.contains('details-row') && nextRow.dataset.taskId === taskId) {
+    nextRow.remove();
     return;
   }
-  const task = appData.tasks.find(t => t.id === selectedTaskId);
+
+  const task = appData.tasks.find(t => t.id === taskId);
+  if (!task) {
+    alert('Task not found.');
+    return;
+  }
+
+  const lines = getLinesForTask(taskId);
+
+  const detailsRow = document.createElement('tr');
+  detailsRow.className = 'details-row';
+  detailsRow.dataset.taskId = taskId;
+  detailsRow.innerHTML = `
+    <td colspan="${colSpan}">
+      <div class="inline-task-details">
+        <p>
+          Task: <strong>${task.code || '-'}</strong> (${task.status})
+        </p>
+        <div class="review-table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Bin</th>
+                <th>SKU</th>
+                <th>Qty</th>
+                <th>Remarks</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lines.map(l => `
+                <tr>
+                  <td>${l.binId}</td>
+                  <td>${l.skuId}</td>
+                  <td>${l.qty}</td>
+                  <td>${l.remarks || ''}</td>
+                  <td>${String(l.scannedAt).replace('T', ' ').substring(0, 16)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </td>
+  `;
+  tbody.insertBefore(detailsRow, row.nextSibling);
+}
+
+function exportTaskCsv(taskId) {
+  const task = appData.tasks.find(t => t.id === taskId);
   if (!task) {
     alert('Task not found.');
     return;
@@ -1105,15 +1251,8 @@ function exportSelectedTask() {
   downloadCsv(filename, rows);
 }
 
-async function closeSelectedTask() {
-  if (!selectedTaskId) {
-    alert('No task selected.');
-    return;
-  }
-  if (!confirm('Mark this task as CLOSED? You will not see it again in open lists.')) {
-    return;
-  }
-  const task = appData.tasks.find(t => t.id === selectedTaskId);
+async function closeTask(taskId) {
+  const task = appData.tasks.find(t => t.id === taskId);
   if (!task) {
     alert('Task not found.');
     return;
@@ -1123,10 +1262,13 @@ async function closeSelectedTask() {
     return;
   }
 
+  if (!confirm(`Mark task ${task.code || taskId} as CLOSED?`)) {
+    return;
+  }
+
   try {
     await updateTaskStatusOnBackend(task.id, 'CLOSED');
     await fetchAppData();
-    hideTaskDetails();
     refreshOpenTaskListToday();
     refreshAllOpenTasks();
     refreshPendingOldOpenTasks();
@@ -1138,6 +1280,26 @@ async function closeSelectedTask() {
   }
 }
 
+// ===== BULK OPERATIONS =====
+
+function getOpenTasksToday() {
+  const today = formatDateOnly(new Date().toISOString());
+  return appData.tasks.filter(t =>
+    t.status === 'OPEN' &&
+    t.createdAt &&
+    formatDateOnly(t.createdAt) === today
+  );
+}
+
+function getPendingOpenTasks() {
+  const today = formatDateOnly(new Date().toISOString());
+  return appData.tasks.filter(t =>
+    t.status === 'OPEN' &&
+    t.createdAt &&
+    formatDateOnly(t.createdAt) < today
+  );
+}
+
 function getSelectedOpenTaskIds() {
   const cbs = document.querySelectorAll('.taskSelectCheckbox');
   const ids = [];
@@ -1147,6 +1309,128 @@ function getSelectedOpenTaskIds() {
     }
   });
   return ids;
+}
+
+function exportTodayAllTasks() {
+  const tasks = getOpenTasksToday();
+  if (!tasks.length) {
+    alert('No open tasks for today.');
+    return;
+  }
+
+  const rows = [];
+  rows.push(['task_code', 'task_created_at', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at']);
+
+  tasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    lines.forEach(l => {
+      rows.push([
+        task.code || '',
+        task.createdAt || '',
+        l.binId,
+        l.skuId,
+        l.qty,
+        l.remarks || '',
+        l.scannedAt
+      ]);
+    });
+  });
+
+  const filename = `putaway_open_tasks_today_${formatDateOnly(new Date().toISOString())}.csv`;
+  downloadCsv(filename, rows);
+}
+
+async function closeTodayAllTasks() {
+  const tasks = getOpenTasksToday();
+  if (!tasks.length) {
+    alert('No open tasks for today.');
+    return;
+  }
+  if (!confirm(`Close all ${tasks.length} open tasks for today?`)) {
+    return;
+  }
+
+  let success = 0;
+  let fail = 0;
+  for (const t of tasks) {
+    try {
+      await updateTaskStatusOnBackend(t.id, 'CLOSED');
+      success++;
+    } catch (e) {
+      console.error('Failed to close task', t.id, e);
+      fail++;
+    }
+  }
+
+  await fetchAppData();
+  refreshOpenTaskListToday();
+  refreshAllOpenTasks();
+  refreshPendingOldOpenTasks();
+  refreshRecentClosedTasks();
+  await runReport();
+
+  alert(`Closed today tasks. Success: ${success}, Failed: ${fail}`);
+}
+
+function exportPendingAllTasks() {
+  const tasks = getPendingOpenTasks();
+  if (!tasks.length) {
+    alert('No pending open tasks from previous days.');
+    return;
+  }
+
+  const rows = [];
+  rows.push(['task_code', 'task_created_at', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at']);
+
+  tasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    lines.forEach(l => {
+      rows.push([
+        task.code || '',
+        task.createdAt || '',
+        l.binId,
+        l.skuId,
+        l.qty,
+        l.remarks || '',
+        l.scannedAt
+      ]);
+    });
+  });
+
+  const filename = `putaway_pending_open_tasks_${formatDateOnly(new Date().toISOString())}.csv`;
+  downloadCsv(filename, rows);
+}
+
+async function closePendingAllTasks() {
+  const tasks = getPendingOpenTasks();
+  if (!tasks.length) {
+    alert('No pending open tasks from previous days.');
+    return;
+  }
+  if (!confirm(`Close all ${tasks.length} pending open tasks from previous days?`)) {
+    return;
+  }
+
+  let success = 0;
+  let fail = 0;
+  for (const t of tasks) {
+    try {
+      await updateTaskStatusOnBackend(t.id, 'CLOSED');
+      success++;
+    } catch (e) {
+      console.error('Failed to close task', t.id, e);
+      fail++;
+    }
+  }
+
+  await fetchAppData();
+  refreshOpenTaskListToday();
+  refreshAllOpenTasks();
+  refreshPendingOldOpenTasks();
+  refreshRecentClosedTasks();
+  await runReport();
+
+  alert(`Closed pending tasks. Success: ${success}, Failed: ${fail}`);
 }
 
 function bulkExportSelectedTasks() {
@@ -1176,7 +1460,7 @@ function bulkExportSelectedTasks() {
     });
   });
 
-  const filename = `putaway_selected_tasks_${formatDateOnly(new Date())}.csv`;
+  const filename = `putaway_selected_tasks_${formatDateOnly(new Date().toISOString())}.csv`;
   downloadCsv(filename, rows);
 }
 
@@ -1211,6 +1495,129 @@ async function bulkCloseSelectedTasks() {
 
   alert(`Bulk close completed. Success: ${successCount}, Failed: ${failCount}`);
 }
+
+// ===== CLOSED TASKS DATE/RANGE SEARCH =====
+
+async function runClosedRangeSearch() {
+  const fromInput = document.getElementById('closedFromDate');
+  const toInput = document.getElementById('closedToDate');
+  const statusEl = document.getElementById('closedRangeStatus');
+  const tbody = document.querySelector('#closedRangeTable tbody');
+
+  if (tbody) tbody.innerHTML = '';
+  closedRangeTasks = [];
+
+  const fromVal = fromInput ? fromInput.value : '';
+  let toVal = toInput ? toInput.value : '';
+
+  if (!fromVal) {
+    if (statusEl) {
+      statusEl.textContent = 'Please select at least a From date.';
+      statusEl.classList.add('error');
+    }
+    return;
+  }
+
+  if (!toVal) {
+    toVal = fromVal;
+    if (toInput) toInput.value = toVal;
+  }
+
+  if (statusEl) {
+    statusEl.textContent = 'Searching...';
+    statusEl.classList.remove('error');
+  }
+
+  await fetchAppData();
+
+  const tasks = appData.tasks.filter(t =>
+    t.status === 'CLOSED' &&
+    t.closedAt &&
+    formatDateOnly(t.closedAt) >= fromVal &&
+    formatDateOnly(t.closedAt) <= toVal
+  );
+
+  closedRangeTasks = tasks;
+
+  if (!tasks.length) {
+    if (statusEl) {
+      statusEl.textContent = 'No CLOSED tasks in this date range.';
+      statusEl.classList.remove('error');
+    }
+    return;
+  }
+
+  tasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${task.code || '-'}</td>
+      <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
+      <td>${task.closedAt ? String(task.closedAt).replace('T', ' ').substring(0, 16) : ''}</td>
+      <td>${lines.length}</td>
+      <td>${totalUnits}</td>
+      <td><button data-task-id="${task.id}" class="viewTaskBtn secondary">View</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleClosedTaskDetailsInline(btn.getAttribute('data-task-id'), btn, false);
+    });
+  });
+
+  if (statusEl) {
+    statusEl.textContent = `Found ${tasks.length} CLOSED tasks in this range.`;
+    statusEl.classList.remove('error');
+  }
+}
+
+function exportClosedRangeCsv() {
+  if (!closedRangeTasks.length) {
+    alert('No result to export. Run a search first.');
+    return;
+  }
+
+  const fromInput = document.getElementById('closedFromDate');
+  const toInput = document.getElementById('closedToDate');
+  const fromVal = fromInput ? fromInput.value : '';
+  const toVal = toInput ? toInput.value : '';
+
+  const rows = [];
+  rows.push(['task_code', 'task_created_at', 'task_closed_at', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at']);
+
+  closedRangeTasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    lines.forEach(l => {
+      rows.push([
+        task.code || '',
+        task.createdAt || '',
+        task.closedAt || '',
+        l.binId,
+        l.skuId,
+        l.qty,
+        l.remarks || '',
+        l.scannedAt
+      ]);
+    });
+  });
+
+  let filename;
+  if (fromVal && toVal && fromVal !== toVal) {
+    filename = `closed_tasks_${fromVal}_to_${toVal}.csv`;
+  } else if (fromVal) {
+    filename = `closed_tasks_${fromVal}.csv`;
+  } else {
+    filename = `closed_tasks_range.csv`;
+  }
+
+  downloadCsv(filename, rows);
+}
+
+// ===== DAILY REPORT =====
 
 async function runReport() {
   const dateInput = document.getElementById('reportDate');
