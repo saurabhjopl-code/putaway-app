@@ -1,7 +1,8 @@
 // ===================== GLOBAL STATE =====================
 
 // Backend Apps Script deployment URL:
-const BACKEND_URL = "https://script.google.com/macros/s/AKfycbwZPCt39-pqFmpgiMwauMOotYYD_F_PoWiNDQZ0mVCjYAWDKyKcoPQN3D39Lt_n6OGu/exec";
+const BACKEND_URL = "https://script.google.com/macros/s/AKfycbyO059RnU-OYKWI0EXgwNGmGd8hB9EvN2K-KraZuWd82bQDMDvTPrmNx_8oM8LHBeNE/exec";
+
 
 // Local state for Scanner app
 let currentBinId = "";
@@ -860,4 +861,5 @@ function formatTime(d) {
   if (!d) return "-";
   return d.replace("T", " ").substring(11, 16);
 }
+
 
