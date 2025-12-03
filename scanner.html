@@ -22,9 +22,13 @@
 <!-- Task summary (local draft only) -->
 <div class="card">
   <h2>Current Draft Task</h2>
-  <p>Task: <strong>Local draft (not yet submitted)</strong></p>
-  <p>Lines: <span id="taskLineCount">0</span> |
-     Units: <span id="taskUnitCount">0</span></p>
+  <p>
+    Lines: <span id="taskLineCount">0</span> |
+    Units: <span id="taskUnitCount">0</span>
+  </p>
+  <p>
+    <button id="finishTaskHeaderBtn" class="accent" disabled>Finish Task</button>
+  </p>
 </div>
 
 <!-- BIN selection -->
@@ -97,7 +101,11 @@
 <!-- Shared camera preview -->
 <div class="card">
   <h2>Camera</h2>
+  <p id="cameraStatus"><small>Camera idle.</small></p>
   <div id="qrReader" style="width:100%;max-width:350px;"></div>
+  <p style="margin-top:8px;">
+    <button id="closeCameraBtn" class="secondary" style="display:none;">Close Camera</button>
+  </p>
   <p><small>Use "Scan Bin with Camera" or "Scan SKU with Camera" buttons above.</small></p>
 </div>
 
