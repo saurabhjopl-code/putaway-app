@@ -19,7 +19,7 @@
 
 <p><a href="index.html">&larr; Home</a></p>
 
-<!-- Task summary (local draft only) -->
+<!-- Task Summary Header -->
 <div class="card">
   <h2>Current Draft Task</h2>
   <p>
@@ -31,7 +31,7 @@
   </p>
 </div>
 
-<!-- BIN selection -->
+<!-- BIN Selection -->
 <div class="card">
   <h2>Select Bin</h2>
   <p id="binStatus" class="status"></p>
@@ -52,7 +52,7 @@
   </p>
 </div>
 
-<!-- Scan & Store (hidden until bin selected) -->
+<!-- Scan & Store (hidden until bin chosen) -->
 <div class="card" id="scanStoreCard" style="display:none;">
   <h2>Scan & Store (Current Bin)</h2>
   <p id="statusMessage" class="status"></p>
@@ -74,11 +74,11 @@
   <p style="margin-top:8px;">
     <button id="saveLineBtn" class="primary">Save Line</button>
     <button id="binCompleteBtn" class="secondary">Bin Complete</button>
-    <button id="finishTaskBtn" class="accent">Finish Task</button>
+    <button id="finishTaskBtn" class="accent" disabled>Finish Task</button>
   </p>
 </div>
 
-<!-- Review -->
+<!-- Review Section -->
 <div class="card" id="reviewCard" style="display:none;">
   <h2>Current Bin Lines (Review & Edit)</h2>
   <div class="review-table-container">
@@ -98,7 +98,7 @@
   </div>
 </div>
 
-<!-- Shared camera preview -->
+<!-- Shared Camera -->
 <div class="card">
   <h2>Camera</h2>
   <p id="cameraStatus"><small>Camera idle.</small></p>
@@ -106,7 +106,7 @@
   <p style="margin-top:8px;">
     <button id="closeCameraBtn" class="secondary" style="display:none;">Close Camera</button>
   </p>
-  <p><small>Use "Scan Bin with Camera" or "Scan SKU with Camera" buttons above.</small></p>
+  <p><small>Use above buttons to activate scanner.</small></p>
 </div>
 
 <script>
