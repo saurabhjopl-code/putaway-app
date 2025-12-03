@@ -245,3 +245,26 @@ small {
     padding: 10px 12px;
   }
 }
+
+/* Section title colours */
+.title-orange {
+  color: #ff9800;
+}
+
+.title-red {
+  color: #e53935;
+}
+
+.title-green {
+  color: #2e7d32;
+}
+
+/* Inline details rows for Supervisor */
+.details-row {
+  background: #fafafa;
+}
+
+.inline-task-details {
+  padding: 8px 4px;
+  border-top: 1px solid #ddd;
+}
