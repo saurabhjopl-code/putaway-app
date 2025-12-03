@@ -18,17 +18,21 @@
 
 <p><a href="index.html">&larr; Home</a></p>
 
-<!-- Open tasks today -->
+<!-- Open Tasks Today -->
 <div class="card">
   <h2 class="title-orange">Open Tasks (Today)</h2>
   <p id="taskListStatus"></p>
+
   <p style="margin-bottom:8px;">
-    <button id="exportTodayAllBtn" class="secondary">Export All (Today)</button>
-    <button id="closeTodayAllBtn" class="accent">Close All (Today)</button>
+    <input type="checkbox" id="selectTodayAll" style="margin-right:6px;"> Select All &nbsp;
+    <button id="exportTodayAllBtn" class="secondary">Export Selected / All</button>
+    <button id="closeTodayAllBtn" class="accent">Close Selected / All</button>
   </p>
+
   <table id="taskTable">
     <thead>
       <tr>
+        <th></th>
         <th>Task</th>
         <th>Created</th>
         <th>Lines</th>
@@ -40,18 +44,21 @@
   </table>
 </div>
 
-<!-- All open tasks (any date) with bulk actions -->
+<!-- All Open Tasks -->
 <div class="card">
   <h2>All Open Tasks</h2>
   <p id="allOpenStatus"></p>
+
   <p style="margin-bottom:8px;">
-    <button id="bulkExportBtn" class="secondary">Export Selected Tasks</button>
-    <button id="bulkCloseBtn" class="accent">Close Selected Tasks</button>
+    <input type="checkbox" id="selectAllOpen" style="margin-right:6px;"> Select All &nbsp;
+    <button id="bulkExportBtn" class="secondary">Export Selected</button>
+    <button id="bulkCloseBtn" class="accent">Close Selected</button>
   </p>
+
   <table id="allOpenTable">
     <thead>
       <tr>
-        <th><input type="checkbox" id="selectAllOpen"></th>
+        <th></th>
         <th>Task</th>
         <th>Created</th>
         <th>Age (days)</th>
@@ -64,14 +71,16 @@
   </table>
 </div>
 
-<!-- Pending open from previous days -->
+<!-- Pending Open Tasks Previous Days -->
 <div class="card">
   <h2 class="title-red">Pending Open Tasks (Previous Days)</h2>
   <p id="pendingOldStatus"></p>
+
   <p style="margin-bottom:8px;">
     <button id="exportPendingAllBtn" class="secondary">Export All Pending</button>
     <button id="closePendingAllBtn" class="accent">Close All Pending</button>
   </p>
+
   <table id="pendingOldTable">
     <thead>
       <tr>
@@ -86,7 +95,7 @@
   </table>
 </div>
 
-<!-- Recently closed -->
+<!-- Recently Closed -->
 <div class="card">
   <h2 class="title-green">Recently Closed (Last 10 Tasks)</h2>
   <p id="recentClosedStatus"></p>
@@ -105,18 +114,21 @@
   </table>
 </div>
 
-<!-- Closed tasks date/range search -->
+<!-- Closed Range Search -->
 <div class="card">
   <h2>Closed Tasks – Date / Range Search</h2>
-  <p>
-    <label for="closedFromDate">From:</label>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <label>From:</label>
     <input type="date" id="closedFromDate">
-    <label for="closedToDate">To:</label>
+    <label>To:</label>
     <input type="date" id="closedToDate">
     <button id="closedSearchBtn" class="primary">Search</button>
     <button id="closedExportBtn" class="secondary">Export Result CSV</button>
-  </p>
+  </div>
+
   <p id="closedRangeStatus"></p>
+
   <div class="review-table-container">
     <table id="closedRangeTable">
       <thead>
@@ -134,15 +146,16 @@
   </div>
 </div>
 
-<!-- Daily report -->
+<!-- Daily Report -->
 <div class="card">
   <h2>Daily Stock Added Report</h2>
   <p>
-    <label for="reportDate">Date:</label>
-    <input type="date" id="reportDate">
+    <label>Date:</label>
+    <input type="date" id="reportDate" style="margin-right:8px;">
     <button id="runReportBtn" class="primary">Run Report</button>
     <button id="exportReportBtn" class="secondary">Export CSV</button>
   </p>
+
   <p id="reportStatus"></p>
   <p>Total Units: <span id="reportTotalUnits">0</span></p>
 
@@ -150,21 +163,18 @@
   <div class="review-table-container">
     <table id="reportBySkuTable">
       <thead>
-        <tr>
-          <th>SKU</th>
-          <th>Units</th>
-        </tr>
+        <tr><th>SKU</th><th>Units</th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 </div>
 
-<!-- SKU master search -->
+<!-- SKU Master Search -->
 <div class="card">
   <h2>SKU Master Search</h2>
   <p>
-    <label for="skuSearchInput">SKU ID:</label>
+    <label>SKU ID:</label>
     <input type="text" id="skuSearchInput" placeholder="Enter SKU ID">
   </p>
   <p id="skuSearchResult"></p>
