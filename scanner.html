@@ -19,27 +19,27 @@
 
 <p><a href="index.html">&larr; Home</a></p>
 
-<!-- Task summary -->
+<!-- Task summary (local draft only) -->
 <div class="card">
-  <h2>Current Task</h2>
-  <p>Task Code: <strong id="taskCodeLabel">[Not generated yet]</strong></p>
-  <p>Lines: <span id="taskLineCount">0</span> | Units: <span id="taskUnitCount">0</span></p>
+  <h2>Current Draft Task</h2>
+  <p>Task: <strong>Local draft (not yet submitted)</strong></p>
+  <p>Lines: <span id="taskLineCount">0</span> |
+     Units: <span id="taskUnitCount">0</span></p>
 </div>
 
-<!-- BIN selection (shown at start) -->
+<!-- BIN selection -->
 <div class="card">
   <h2>Select Bin</h2>
   <p id="binStatus" class="status"></p>
 
   <label for="binInput">Bin ID</label>
-<input type="text" id="binInput" placeholder="Scan or type Bin ID" autocomplete="off">
+  <input type="text" id="binInput" placeholder="Scan or type Bin ID" autocomplete="off">
 
-<p style="margin-top:8px;">
-  <button id="setBinBtn" class="primary">Set Bin</button>
-  <button id="scanBinBtn" class="secondary">Scan Bin with Camera</button>
-  <button id="resetBinBtn" class="secondary" style="display:none;">Reset Bin</button>
-</p>
-
+  <p style="margin-top:8px;">
+    <button id="setBinBtn" class="primary">Set Bin</button>
+    <button id="scanBinBtn" class="secondary">Scan Bin with Camera</button>
+    <button id="resetBinBtn" class="secondary" style="display:none;">Reset Bin</button>
+  </p>
 
   <p style="margin-top:8px;">
     Capacity: <span id="binCapacity">0</span> |
@@ -60,6 +60,9 @@
   <label for="qtyInput">Quantity</label>
   <input type="number" id="qtyInput" min="1" inputmode="numeric" placeholder="Enter quantity">
 
+  <label for="remarksInput">Remarks (optional)</label>
+  <input type="text" id="remarksInput" placeholder='e.g. "Dupatta missing"' autocomplete="off">
+
   <p style="margin-top:8px;">
     <button id="scanSkuBtn" class="secondary">Scan SKU with Camera</button>
   </p>
@@ -71,7 +74,7 @@
   </p>
 </div>
 
-<!-- Review (hidden until bin selected) -->
+<!-- Review -->
 <div class="card" id="reviewCard" style="display:none;">
   <h2>Current Bin Lines (Review & Edit)</h2>
   <div class="review-table-container">
@@ -81,6 +84,7 @@
           <th>#</th>
           <th>SKU</th>
           <th>Qty</th>
+          <th>Remarks</th>
           <th>Time</th>
           <th>Actions</th>
         </tr>
@@ -103,4 +107,3 @@
 
 </body>
 </html>
-
