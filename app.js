@@ -350,10 +350,12 @@ async function onFinishTask() {
     };
 
     const res = await fetch(BACKEND_URL, {
-      method: "POST",
-      body: JSON.stringify(payload),
-      headers: { "Content-Type": "application/json" }
-    });
+  method: "POST",
+  mode: "cors",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload)
+});
+
 
     const data = await res.json();
     if (!data.success) {
@@ -858,3 +860,4 @@ function formatTime(d) {
   if (!d) return "-";
   return d.replace("T", " ").substring(11, 16);
 }
+
