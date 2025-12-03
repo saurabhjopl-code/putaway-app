@@ -1,270 +1,141 @@
-:root {
-  --primary: #004c8c;        /* deep blue */
-  --primary-light: #e3f2fd;
-  --accent: #ff9800;         /* orange accent */
-  --bg: #f5f5f5;
-  --text: #222;
-  --border-radius: 10px;
-}
-
-* {
-  box-sizing: border-box;
-}
-
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  padding: 16px;
-  max-width: 900px;
-  margin: 0 auto;
-  background: var(--bg);
-  color: var(--text);
+  font-family: Arial, sans-serif;
+  background: #f5f6f7;
+  margin: 0;
+  padding: 0;
 }
 
+/* HEADER */
 .app-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  background: #222;
+  padding: 12px;
+  color: white;
 }
-
 .app-header img {
-  height: 40px;
+  height: 50px;
 }
-
 .app-header-title {
   display: flex;
   flex-direction: column;
+  font-size: 14px;
 }
 
-.app-header-title span:first-child {
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-
-.app-header-title span:last-child {
-  font-size: 0.8rem;
-  color: #555;
-}
-
-h1 {
-  margin-bottom: 4px;
-}
-
-a {
-  color: var(--primary);
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
+/* CARDS */
 .card {
-  background: #fff;
-  border-radius: var(--border-radius);
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.06);
-  border: 1px solid #e0e0e0;
+  background: white;
+  padding: 16px;
+  margin: 12px;
+  border-radius: 10px;
+  box-shadow: 0 0 6px rgba(0,0,0,0.15);
 }
 
-.card h2 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 1.05rem;
+/* HOME PAGE */
+.home-container {
+  text-align: center;
+  padding: 40px 20px;
+}
+.home-header img {
+  height: 80px;
+  margin-bottom: 12px;
+}
+.home-header h1 {
+  margin: 6px 0;
+  font-size: 22px;
+  font-weight: bold;
+}
+.home-header h2 {
+  margin: 4px 0 18px;
+  font-size: 16px;
+  font-weight: normal;
 }
 
-label {
-  display: block;
-  margin: 8px 0 4px;
-  font-size: 0.9rem;
+.home-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+.home-btn {
+  display: inline-block;
+  padding: 18px 40px;
+  font-size: 18px;
+  text-decoration: none;
+  border-radius: 10px;
+  font-weight: bold;
+  color: white;
+  transition: 0.2s;
+}
+.scanner-btn { background: #007bff; }
+.supervisor-btn { background: #28a745; }
+.home-btn:hover { opacity: 0.8; }
+
+.footer-note {
+  margin-top: 40px;
+  font-size: 13px;
+  color: #444;
 }
 
-input[type="text"],
-input[type="password"],
-input[type="number"],
-input[type="date"],
-select {
-  width: 100%;
-  padding: 7px 9px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  font-size: 0.95rem;
-}
-
-input:focus,
-select:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(25,118,210,0.2);
-}
-
+/* BUTTONS */
 button {
-  padding: 7px 12px;
-  margin: 6px 4px 0 0;
-  cursor: pointer;
-  border-radius: 999px;
+  padding: 6px 12px;
+  border-radius: 6px;
   border: none;
-  font-size: 0.9rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  cursor: pointer;
+  margin-right: 6px;
 }
+button.primary { background: #007bff; color: white; }
+button.secondary { background: #aaa; color: white; }
+button.accent { background: #f7931e; color: white; }
+button.red { background: red; color: white; }
+button.tiny { padding: 2px 6px; font-size: 12px; }
 
-button:hover {
-  opacity: 0.9;
-}
-
-button:active {
-  transform: scale(0.98);
-}
-
-button.primary {
-  background: var(--primary);
-  color: #fff;
-}
-
-button.secondary {
-  background: #e0e0e0;
-  color: #333;
-}
-
-button.accent {
-  background: var(--accent);
-  color: #fff;
-}
-
-.status {
-  margin-top: 4px;
-  font-size: 0.85rem;
-}
-
-.error {
-  color: #d32f2f;
-}
-
-.success {
-  color: #2e7d32;
-}
-
+/* TABLES */
 table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 0.85rem;
+  margin-top: 10px;
 }
-
 th, td {
-  border: 1px solid #e0e0e0;
-  padding: 4px 6px;
-  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
 }
 
-th {
-  background: var(--primary-light);
-  font-weight: 600;
+/* INLINE DETAILS */
+.detail-table {
+  width: 100%;
+  background: #fafafa;
+}
+.detail-table th {
+  background: #eee;
 }
 
-small {
-  color: #777;
-}
+/* COLORS FOR TITLES */
+.title-orange { color: orange; font-weight: bold; }
+.title-red { color: red; font-weight: bold; }
+.title-green { color: green; font-weight: bold; }
 
-/* Home page specific */
-
-.home-card {
-  text-align: center;
-  padding-top: 24px;
-  padding-bottom: 24px;
-}
-
-.home-subtitle {
-  margin-top: 4px;
-  margin-bottom: 20px;
-  color: #555;
-  font-size: 0.95rem;
-}
-
-.role-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.role-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 220px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  font-size: 0.95rem;
-  text-decoration: none;
-  font-weight: 500;
-  border: none;
-}
-
-.role-btn.primary {
-  background: var(--primary);
-  color: #fff;
-}
-
-.role-btn.secondary {
-  background: #e0e0e0;
-  color: #333;
-}
-
-.role-btn:hover {
-  opacity: 0.9;
-}
-
-.role-btn:active {
-  transform: scale(0.98);
-}
-
-.home-footer-note {
-  margin-top: 6px;
-  color: #777;
-  font-size: 0.8rem;
-}
-
-/* Review table scroll */
-
+/* REVIEW SCROLL */
 .review-table-container {
-  max-height: 250px;
+  max-height: 200px;
   overflow-y: auto;
 }
 
-/* mobile */
+/* STATUS */
+.status {
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+/* CAMERA */
+#qrReader {
+  margin-top: 8px;
+  width: 100%;
+}
+
+/* MOBILE */
 @media (max-width: 600px) {
-  body {
-    padding: 10px;
-  }
-  .card {
-    padding: 10px 12px;
-  }
-}
-
-/* Section title colours */
-.title-orange {
-  color: #ff9800;
-}
-
-.title-red {
-  color: #e53935;
-}
-
-.title-green {
-  color: #2e7d32;
-}
-
-/* Inline details rows for Supervisor */
-.details-row {
-  background: #fafafa;
-}
-
-.inline-task-details {
-  padding: 8px 4px;
-  border-top: 1px solid #ddd;
+  .home-buttons { flex-direction: column; }
+  .home-btn { width: 100%; }
 }
