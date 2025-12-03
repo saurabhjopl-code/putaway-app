@@ -4,7 +4,7 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbwZPCt39-pqFmpgiMwauMOo
 // ================== GLOBAL STATE ==================
 let appData = { tasks: [], lines: [] };  // loaded from backend
 let binsMap = {}; // bin_id -> capacity
-let skuMap = {};  // sku_id -> { name }
+let skuMap = {};  // sku_id (UPPER) -> { name }
 
 // ================== DEVICE ID (for scanner) ==================
 const DEVICE_KEY = 'putaway_device_id';
@@ -26,7 +26,6 @@ async function fetchAppData() {
   if (!res.ok) throw new Error('Failed to load app data');
   const data = await res.json();
 
-  // Support response like {tasks,lines} OR {success,tasks,lines}
   if (data.tasks && data.lines) {
     appData = {
       tasks: data.tasks,
@@ -37,24 +36,23 @@ async function fetchAppData() {
   }
 }
 
-// POST: save line (create task if needed)
-async function saveLineToBackend(deviceId, binId, skuId, qty) {
+// POST: create task + all lines (called once at Finish Task)
+async function createTaskWithLinesOnBackend(deviceId, createdAt, lines) {
   const payload = {
-    action: 'saveLine',
+    action: 'createTaskWithLines',
     deviceId,
-    binId,
-    skuId,
-    qty
+    createdAt,
+    lines
   };
   const res = await fetch(API_URL, {
     method: 'POST',
-    // IMPORTANT: no Content-Type header (avoids CORS preflight issues)
+    // no Content-Type header to avoid CORS preflight
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error('Failed to save line');
+  if (!res.ok) throw new Error('Failed to create task');
   const data = await res.json();
   if (data.success === false) throw new Error(data.error || 'Backend error');
-  return data; // { success, taskId, lineId? }
+  return data; // { success, taskId, code }
 }
 
 // POST: update task status (OPEN / CLOSED)
@@ -71,10 +69,10 @@ async function updateTaskStatusOnBackend(taskId, newStatus) {
   if (!res.ok) throw new Error('Failed to update task status');
   const data = await res.json();
   if (data.success === false) throw new Error(data.error || 'Backend error');
-  return data; // e.g. { success, code }
+  return data;
 }
 
-// POST: update line quantity
+// (Supervisor-only helpers; not used on scanner page, but kept for future)
 async function updateLineOnBackend(lineId, qty) {
   const payload = { action: 'updateLine', lineId, qty };
   const res = await fetch(API_URL, {
@@ -87,7 +85,6 @@ async function updateLineOnBackend(lineId, qty) {
   return data;
 }
 
-// POST: delete line
 async function deleteLineOnBackend(lineId) {
   const payload = { action: 'deleteLine', lineId };
   const res = await fetch(API_URL, {
@@ -178,7 +175,7 @@ async function loadSkuMaster() {
       const skuId = cols[skuIdx];
       const skuName = cols[nameIdx] || '';
       if (skuId) {
-        skuMap[skuId] = { name: skuName };
+        skuMap[skuId.toUpperCase()] = { name: skuName };
       }
     }
     console.log('Loaded SKUs:', skuMap);
@@ -194,7 +191,7 @@ function getLinesForTask(taskId) {
   return appData.lines.filter(l => l.taskId === taskId);
 }
 
-function getBinUsedUnits(binId) {
+function getBinUsedUnitsRemote(binId) {
   return appData.lines
     .filter(l => l.binId === binId)
     .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
@@ -236,13 +233,30 @@ function formatDateOnly(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function diffInDays(a, b) {
+  const one = new Date(a);
+  const two = new Date(b);
+  const ms = Math.abs(two - one);
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
 // ================== SCANNER PAGE LOGIC ==================
 
 let scannerDeviceId;
-let currentTaskId = null;
 let currentBinId = null;
 let html5QrCode = null;
 let currentScanTarget = null; // 'bin' or 'sku'
+
+// local-only draft task (fast scanning)
+let localTaskId = null;
+let localTaskCreatedAt = null;
+let localLines = []; // [{id, binId, skuId, qty, remarks, scannedAt}]
+
+function newLocalTask() {
+  localTaskId = 'LOCAL-' + Date.now().toString(36);
+  localTaskCreatedAt = new Date().toISOString();
+  localLines = [];
+}
 
 // called from scanner.html <body> onload
 async function initScanner() {
@@ -258,12 +272,7 @@ async function initScanner() {
     if (statusEl) statusEl.textContent = 'Loading data from backend...';
     await fetchAppData();
 
-    // reuse existing IN_PROGRESS task for this device, if any
-    const existing = appData.tasks.find(
-      t => t.status === 'IN_PROGRESS' && t.scannerDeviceId === scannerDeviceId
-    );
-    currentTaskId = existing ? existing.id : null;
-
+    newLocalTask();
     refreshTaskSummary();
     setBinStatus('Scan Bin to start.', false);
     showStatus('Ready.', false);
@@ -278,6 +287,7 @@ async function initScanner() {
   const binInput = document.getElementById('binInput');
   const skuInput = document.getElementById('skuInput');
   const qtyInput = document.getElementById('qtyInput');
+  const remarksInput = document.getElementById('remarksInput');
   const saveLineBtn = document.getElementById('saveLineBtn');
   const binCompleteBtn = document.getElementById('binCompleteBtn');
   const finishTaskBtn = document.getElementById('finishTaskBtn');
@@ -301,7 +311,8 @@ async function initScanner() {
 
   if (skuInput) {
     skuInput.addEventListener('input', () => {
-      updateSkuHint(skuInput.value.trim());
+      const val = skuInput.value.trim().toUpperCase();
+      updateSkuHint(val);
     });
     skuInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') qtyInput && qtyInput.focus();
@@ -316,10 +327,10 @@ async function initScanner() {
 
   scanBinBtn && scanBinBtn.addEventListener('click', () => startScanner('bin'));
   scanSkuBtn && scanSkuBtn.addEventListener('click', () => startScanner('sku'));
-  resetBinBtn && resetBinBtn.addEventListener('click', resetBinSelection);
+  resetBinBtn && resetBinBtn.addEventListener('click', () => resetBinSelection(false));
 
   // initial UI: only bin card active
-  resetBinSelection(true); // true = don't override status text
+  resetBinSelection(true);
 }
 
 function showStatus(msg, isError = false) {
@@ -340,40 +351,41 @@ function setBinStatus(msg, isError = false) {
   else el.classList.add('success');
 }
 
-function updateSkuHint(skuId) {
+function updateSkuHint(skuIdUpper) {
   const el = document.getElementById('skuNameHint');
   if (!el) return;
-  if (!skuId) {
+  if (!skuIdUpper) {
     el.innerHTML = '<small>SKU: -</small>';
     return;
   }
-  const info = skuMap[skuId];
+  const info = skuMap[skuIdUpper];
   if (info) {
-    el.innerHTML = `<small>SKU: ${skuId} – ${info.name}</small>`;
+    el.innerHTML = `<small>SKU: ${skuIdUpper} – ${info.name}</small>`;
   } else {
-    el.innerHTML = `<small>SKU: ${skuId} (not in SKU master)</small>`;
+    el.innerHTML = `<small>SKU: ${skuIdUpper} (not in SKU master)</small>`;
   }
 }
 
 function refreshTaskSummary() {
-  const codeEl = document.getElementById('taskCodeLabel');
   const lineCountEl = document.getElementById('taskLineCount');
   const unitCountEl = document.getElementById('taskUnitCount');
-  if (!codeEl) return;
+  if (!lineCountEl || !unitCountEl) return;
 
-  if (!currentTaskId) {
-    codeEl.textContent = '[Not generated yet]';
-    lineCountEl.textContent = '0';
-    unitCountEl.textContent = '0';
-    return;
-  }
-  const task = appData.tasks.find(t => t.id === currentTaskId);
-  const lines = getLinesForTask(currentTaskId);
-  const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+  const totalLines = localLines.length;
+  const totalUnits = localLines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
 
-  codeEl.textContent = task && task.code ? task.code : '[Not generated yet]';
-  lineCountEl.textContent = lines.length;
+  lineCountEl.textContent = totalLines;
   unitCountEl.textContent = totalUnits;
+}
+
+function getBinUsedUnitsLocal(binId) {
+  return localLines
+    .filter(l => l.binId === binId)
+    .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+}
+
+function getBinUsedUnitsTotal(binId) {
+  return getBinUsedUnitsRemote(binId) + getBinUsedUnitsLocal(binId);
 }
 
 function refreshBinUsage() {
@@ -390,7 +402,7 @@ function refreshBinUsage() {
   }
 
   const capacity = binsMap[currentBinId] || 0;
-  const used = getBinUsedUnits(currentBinId);
+  const used = getBinUsedUnitsTotal(currentBinId);
   const free = capacity - used;
 
   capEl.textContent = capacity;
@@ -403,11 +415,9 @@ function refreshBinLinesTable() {
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!currentTaskId || !currentBinId) return;
+  if (!currentBinId) return;
 
-  const lines = appData.lines.filter(
-    l => l.taskId === currentTaskId && l.binId === currentBinId
-  );
+  const lines = localLines.filter(l => l.binId === currentBinId);
 
   lines.forEach((line, index) => {
     const tr = document.createElement('tr');
@@ -415,6 +425,7 @@ function refreshBinLinesTable() {
       <td>${index + 1}</td>
       <td>${line.skuId}</td>
       <td>${line.qty}</td>
+      <td>${line.remarks || ''}</td>
       <td>${String(line.scannedAt).replace('T', ' ').substring(0, 16)}</td>
       <td>
         <button class="secondary editLineBtn" data-line-id="${line.id}">Edit</button>
@@ -438,6 +449,9 @@ function resetBinSelection(keepStatus = false) {
   const scanStoreCard = document.getElementById('scanStoreCard');
   const reviewCard = document.getElementById('reviewCard');
   const tbody = document.querySelector('#binLinesTable tbody');
+  const skuInput = document.getElementById('skuInput');
+  const qtyInput = document.getElementById('qtyInput');
+  const remarksInput = document.getElementById('remarksInput');
 
   currentBinId = null;
 
@@ -457,6 +471,10 @@ function resetBinSelection(keepStatus = false) {
   if (tbody) {
     tbody.innerHTML = '';
   }
+  if (skuInput) skuInput.value = '';
+  if (qtyInput) qtyInput.value = '';
+  if (remarksInput) remarksInput.value = '';
+  updateSkuHint('');
 
   refreshBinUsage();
   if (!keepStatus) {
@@ -482,7 +500,7 @@ async function onBinScanned() {
   }
 
   try {
-    await fetchAppData();
+    await fetchAppData(); // to get latest remote usage for capacity
   } catch (e) {
     console.error(e);
     setBinStatus('Warning: data not refreshed (' + e.message + ')', true);
@@ -493,7 +511,6 @@ async function onBinScanned() {
   refreshBinUsage();
   refreshBinLinesTable();
 
-  // lock bin & show other sections
   if (binInput) binInput.readOnly = true;
   if (resetBinBtn) resetBinBtn.style.display = 'inline-flex';
   if (scanStoreCard) scanStoreCard.style.display = 'block';
@@ -513,9 +530,13 @@ async function onSaveLine() {
 
   const skuInput = document.getElementById('skuInput');
   const qtyInput = document.getElementById('qtyInput');
+  const remarksInput = document.getElementById('remarksInput');
+
   const binId = currentBinId;
-  const skuId = skuInput.value.trim();
+  const rawSku = (skuInput.value || '').trim();
+  const skuId = rawSku.toUpperCase();
   const qtyVal = parseInt(qtyInput.value, 10);
+  const remarks = (remarksInput.value || '').trim();
 
   if (!skuId) {
     showStatus('SKU ID is required.', true);
@@ -529,30 +550,40 @@ async function onSaveLine() {
   }
 
   try {
-    await fetchAppData();
+    await fetchAppData(); // refresh remote usage
+
     const capacity = binsMap[binId] || 0;
-    const used = getBinUsedUnits(binId);
-    if (used + qtyVal > capacity) {
-      const free = capacity - used;
+    const usedTotal = getBinUsedUnitsTotal(binId);
+
+    if (usedTotal + qtyVal > capacity) {
+      const free = capacity - usedTotal;
       showStatus(
-        `Bin ${binId} capacity exceeded. Used=${used}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`,
+        `Bin ${binId} capacity exceeded. Used=${usedTotal}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`,
         true
       );
       return;
     }
 
-    const resp = await saveLineToBackend(scannerDeviceId, binId, skuId, qtyVal);
-    currentTaskId = resp.taskId;
+    const nowIso = new Date().toISOString();
+    const line = {
+      id: 'LLOCAL-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      binId,
+      skuId,
+      qty: qtyVal,
+      remarks,
+      scannedAt: nowIso
+    };
+    localLines.push(line);
 
-    await fetchAppData();
     refreshTaskSummary();
     refreshBinUsage();
     refreshBinLinesTable();
 
-    showStatus(`Saved: Bin ${binId}, SKU ${skuId}, Qty ${qtyVal}`, false);
+    showStatus(`Saved locally: Bin ${binId}, SKU ${skuId}, Qty ${qtyVal}`, false);
 
     skuInput.value = '';
     qtyInput.value = '';
+    remarksInput.value = '';
     updateSkuHint('');
     skuInput.focus();
   } catch (e) {
@@ -567,52 +598,58 @@ async function onBinComplete() {
     return;
   }
   const finishedBin = currentBinId;
-  resetBinSelection(true); // keep status, override text below
+  resetBinSelection(true);
   setBinStatus(`Bin ${finishedBin} completed. Scan next bin.`, false);
 }
 
 async function onFinishTask() {
-  if (!currentTaskId) {
-    showStatus('No active task to finish.', true);
+  if (!localLines.length) {
+    showStatus('No lines scanned. Add at least one line before finishing.', true);
     return;
   }
+
   try {
-    await fetchAppData();
-    const lines = getLinesForTask(currentTaskId);
-    if (lines.length === 0) {
-      showStatus('Cannot finish an empty task. Add at least one line.', true);
-      return;
-    }
+    const createdAt = localTaskCreatedAt || new Date().toISOString();
+    const payloadLines = localLines.map(l => ({
+      binId: l.binId,
+      skuId: l.skuId,
+      qty: l.qty,
+      remarks: l.remarks,
+      scannedAt: l.scannedAt
+    }));
 
-    const resp = await updateTaskStatusOnBackend(currentTaskId, 'OPEN');
+    const resp = await createTaskWithLinesOnBackend(scannerDeviceId, createdAt, payloadLines);
     const taskCode = resp.code || '[code generated]';
-    showStatus('Task submitted. Task ID: ' + taskCode, false);
 
-    currentTaskId = null;
-    currentBinId = null;
-    const binInput = document.getElementById('binInput');
-    if (binInput) {
-      binInput.value = '';
-      binInput.readOnly = false;
-    }
-    refreshBinUsage();
-    const tbody = document.querySelector('#binLinesTable tbody');
-    if (tbody) tbody.innerHTML = '';
-    await fetchAppData();
+    showStatus('Task submitted. Task Code: ' + taskCode, false);
+
+    // reset local draft
+    newLocalTask();
     refreshTaskSummary();
     resetBinSelection(false);
+
+    // refresh backend snapshot for future capacity checks
+    await fetchAppData();
   } catch (e) {
     console.error(e);
     showStatus('Error: ' + e.message, true);
   }
 }
 
-async function editLinePrompt(lineId) {
-  const line = appData.lines.find(l => l.id === lineId);
+function editLinePrompt(lineId) {
+  const line = localLines.find(l => l.id === lineId);
   if (!line) {
     alert('Line not found.');
     return;
   }
+
+  const newSkuStr = prompt('Edit SKU ID', line.skuId) || '';
+  const newSku = newSkuStr.trim().toUpperCase();
+  if (!newSku) {
+    alert('SKU ID cannot be empty.');
+    return;
+  }
+
   const newQtyStr = prompt(
     `Edit quantity for SKU ${line.skuId} (current: ${line.qty})`,
     String(line.qty)
@@ -624,22 +661,29 @@ async function editLinePrompt(lineId) {
     return;
   }
 
+  const newRemarks = prompt('Edit remarks (optional)', line.remarks || '') || '';
+
   try {
-    await fetchAppData();
-    const capacity = binsMap[line.binId] || 0;
-    const usedWithoutThis = appData.lines
-      .filter(l => l.binId === line.binId && l.id !== lineId)
+    const binId = line.binId;
+    const capacity = binsMap[binId] || 0;
+    const remoteUsed = getBinUsedUnitsRemote(binId);
+    const localUsedWithoutThis = localLines
+      .filter(l => l.binId === binId && l.id !== lineId)
       .reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
-    if (usedWithoutThis + newQty > capacity) {
-      const free = capacity - usedWithoutThis;
+
+    const totalIfUpdated = remoteUsed + localUsedWithoutThis + newQty;
+    if (totalIfUpdated > capacity) {
+      const free = capacity - remoteUsed - localUsedWithoutThis;
       alert(
-        `Bin ${line.binId} capacity exceeded with this change. Used=${usedWithoutThis}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`
+        `Bin ${binId} capacity exceeded with this change. Used=${remoteUsed + localUsedWithoutThis}, capacity=${capacity}, free=${free >= 0 ? free : 0}.`
       );
       return;
     }
 
-    await updateLineOnBackend(lineId, newQty);
-    await fetchAppData();
+    line.skuId = newSku;
+    line.qty = newQty;
+    line.remarks = newRemarks.trim();
+
     refreshTaskSummary();
     refreshBinUsage();
     refreshBinLinesTable();
@@ -649,18 +693,17 @@ async function editLinePrompt(lineId) {
   }
 }
 
-async function deleteLinePrompt(lineId) {
+function deleteLinePrompt(lineId) {
   if (!confirm('Delete this line?')) return;
-  try {
-    await deleteLineOnBackend(lineId);
-    await fetchAppData();
-    refreshTaskSummary();
-    refreshBinUsage();
-    refreshBinLinesTable();
-  } catch (e) {
-    console.error(e);
-    alert('Error: ' + e.message);
+  const before = localLines.length;
+  localLines = localLines.filter(l => l.id !== lineId);
+  if (localLines.length === before) {
+    alert('Line not found.');
+    return;
   }
+  refreshTaskSummary();
+  refreshBinUsage();
+  refreshBinLinesTable();
 }
 
 // ===== CAMERA SCANNING (Scanner page) =====
@@ -687,8 +730,9 @@ function startScanner(target) {
     } else if (currentScanTarget === 'sku') {
       const skuInput = document.getElementById('skuInput');
       if (skuInput) {
-        skuInput.value = text;
-        updateSkuHint(text);
+        const upper = text.toUpperCase();
+        skuInput.value = upper;
+        updateSkuHint(upper);
         const qtyInput = document.getElementById('qtyInput');
         qtyInput && qtyInput.focus();
       }
@@ -698,10 +742,10 @@ function startScanner(target) {
   };
 
   const onScanError = errorMessage => {
-    // ignore per-frame scan errors
+    // ignore per-frame errors
   };
 
-  // 1️⃣ Try environment/back camera first
+  // Try environment/back camera first
   html5QrCode.start(
     { facingMode: "environment" },
     config,
@@ -710,7 +754,6 @@ function startScanner(target) {
   ).catch(err => {
     console.warn("Environment camera failed, falling back to device list:", err);
 
-    // 2️⃣ Fallback: pick device whose label looks like back/rear/environment
     Html5Qrcode.getCameras()
       .then(devices => {
         if (!devices || devices.length === 0) {
@@ -763,7 +806,9 @@ async function initEntry() {
     if (reportDateInput) reportDateInput.value = todayStr;
 
     refreshOpenTaskListToday();
+    refreshAllOpenTasks();
     refreshPendingOldOpenTasks();
+    refreshRecentClosedTasks();
     attachEntryHandlers();
     if (reportDateInput) await runReport();
   } catch (e) {
@@ -782,16 +827,30 @@ function attachEntryHandlers() {
   const exportTaskBtn = document.getElementById('exportTaskBtn');
   const closeTaskBtn = document.getElementById('closeTaskBtn');
   const skuSearchInput = document.getElementById('skuSearchInput');
+  const bulkExportBtn = document.getElementById('bulkExportBtn');
+  const bulkCloseBtn = document.getElementById('bulkCloseBtn');
+  const selectAllOpen = document.getElementById('selectAllOpen');
 
   runReportBtn && runReportBtn.addEventListener('click', runReport);
   exportReportBtn && exportReportBtn.addEventListener('click', exportReportCsv);
   exportTaskBtn && exportTaskBtn.addEventListener('click', exportSelectedTask);
   closeTaskBtn && closeTaskBtn.addEventListener('click', closeSelectedTask);
+  bulkExportBtn && bulkExportBtn.addEventListener('click', bulkExportSelectedTasks);
+  bulkCloseBtn && bulkCloseBtn.addEventListener('click', bulkCloseSelectedTasks);
+
+  if (selectAllOpen) {
+    selectAllOpen.addEventListener('change', () => {
+      const checkboxes = document.querySelectorAll('.taskSelectCheckbox');
+      checkboxes.forEach(cb => {
+        cb.checked = selectAllOpen.checked;
+      });
+    });
+  }
 
   if (skuSearchInput) {
     const resultEl = document.getElementById('skuSearchResult');
     skuSearchInput.addEventListener('input', () => {
-      const val = skuSearchInput.value.trim();
+      const val = skuSearchInput.value.trim().toUpperCase();
       if (!val) {
         resultEl.textContent = '';
         resultEl.classList.remove('error');
@@ -861,6 +920,52 @@ function refreshOpenTaskListToday() {
   }
 }
 
+function refreshAllOpenTasks() {
+  const tbody = document.querySelector('#allOpenTable tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const statusEl = document.getElementById('allOpenStatus');
+  const openTasks = appData.tasks.filter(t => t.status === 'OPEN');
+
+  if (statusEl) {
+    if (openTasks.length === 0) {
+      statusEl.textContent = 'No open tasks.';
+      statusEl.classList.remove('error');
+    } else {
+      statusEl.textContent = `Total open tasks: ${openTasks.length}`;
+      statusEl.classList.remove('error');
+    }
+  }
+
+  const todayStr = formatDateOnly(new Date());
+
+  openTasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+    const ageDays = task.createdAt ? diffInDays(task.createdAt, todayStr) : '';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" class="taskSelectCheckbox" data-task-id="${task.id}"></td>
+      <td>${task.code || '-'}</td>
+      <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
+      <td>${ageDays}</td>
+      <td>${lines.length}</td>
+      <td>${totalUnits}</td>
+      <td><button data-task-id="${task.id}" class="viewTaskBtn secondary">View</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('.viewTaskBtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-task-id');
+      showTaskDetails(id);
+    });
+  });
+}
+
 function refreshPendingOldOpenTasks() {
   const tbody = document.querySelector('#pendingOldTable tbody');
   if (!tbody) return;
@@ -899,6 +1004,44 @@ function refreshPendingOldOpenTasks() {
   });
 }
 
+function refreshRecentClosedTasks() {
+  const tbody = document.querySelector('#recentClosedTable tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  const statusEl = document.getElementById('recentClosedStatus');
+
+  const closedTasks = appData.tasks
+    .filter(t => t.status === 'CLOSED' && t.closedAt)
+    .sort((a, b) => new Date(b.closedAt) - new Date(a.closedAt))
+    .slice(0, 10);
+
+  if (statusEl) {
+    if (closedTasks.length === 0) {
+      statusEl.textContent = 'No recently closed tasks.';
+      statusEl.classList.remove('error');
+    } else {
+      statusEl.textContent = `Showing last ${closedTasks.length} closed tasks.`;
+      statusEl.classList.remove('error');
+    }
+  }
+
+  closedTasks.forEach(task => {
+    const lines = getLinesForTask(task.id);
+    const totalUnits = lines.reduce((sum, l) => sum + (parseInt(l.qty, 10) || 0), 0);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${task.code || '-'}</td>
+      <td>${task.createdAt ? String(task.createdAt).replace('T', ' ').substring(0, 16) : ''}</td>
+      <td>${task.closedAt ? String(task.closedAt).replace('T', ' ').substring(0, 16) : ''}</td>
+      <td>${lines.length}</td>
+      <td>${totalUnits}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 function showTaskDetails(taskId) {
   selectedTaskId = taskId;
   const card = document.getElementById('taskDetailsCard');
@@ -911,6 +1054,7 @@ function showTaskDetails(taskId) {
     alert('Task is not open or not found.');
     hideTaskDetails();
     refreshOpenTaskListToday();
+    refreshAllOpenTasks();
     return;
   }
 
@@ -926,6 +1070,7 @@ function showTaskDetails(taskId) {
       <td>${line.binId}</td>
       <td>${line.skuId}</td>
       <td>${line.qty}</td>
+      <td>${line.remarks || ''}</td>
       <td>${String(line.scannedAt).replace('T', ' ').substring(0, 16)}</td>
     `;
     tbody.appendChild(tr);
@@ -951,9 +1096,9 @@ function exportSelectedTask() {
   const lines = getLinesForTask(task.id);
 
   const rows = [];
-  rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at']);
+  rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at']);
   lines.forEach(l => {
-    rows.push([task.code, l.binId, l.skuId, l.qty, l.scannedAt]);
+    rows.push([task.code, l.binId, l.skuId, l.qty, l.remarks || '', l.scannedAt]);
   });
 
   const filename = (task.code || 'task') + '.csv';
@@ -965,7 +1110,7 @@ async function closeSelectedTask() {
     alert('No task selected.');
     return;
   }
-  if (!confirm('Mark this task as CLOSED? You will not see it again.')) {
+  if (!confirm('Mark this task as CLOSED? You will not see it again in open lists.')) {
     return;
   }
   const task = appData.tasks.find(t => t.id === selectedTaskId);
@@ -983,12 +1128,88 @@ async function closeSelectedTask() {
     await fetchAppData();
     hideTaskDetails();
     refreshOpenTaskListToday();
+    refreshAllOpenTasks();
     refreshPendingOldOpenTasks();
+    refreshRecentClosedTasks();
     await runReport();
   } catch (e) {
     console.error(e);
     alert('Error: ' + e.message);
   }
+}
+
+function getSelectedOpenTaskIds() {
+  const cbs = document.querySelectorAll('.taskSelectCheckbox');
+  const ids = [];
+  cbs.forEach(cb => {
+    if (cb.checked) {
+      ids.push(cb.getAttribute('data-task-id'));
+    }
+  });
+  return ids;
+}
+
+function bulkExportSelectedTasks() {
+  const ids = getSelectedOpenTaskIds();
+  if (!ids.length) {
+    alert('No tasks selected.');
+    return;
+  }
+
+  const rows = [];
+  rows.push(['task_code', 'task_created_at', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at']);
+
+  ids.forEach(id => {
+    const task = appData.tasks.find(t => t.id === id);
+    if (!task) return;
+    const lines = getLinesForTask(id);
+    lines.forEach(l => {
+      rows.push([
+        task.code || '',
+        task.createdAt || '',
+        l.binId,
+        l.skuId,
+        l.qty,
+        l.remarks || '',
+        l.scannedAt
+      ]);
+    });
+  });
+
+  const filename = `putaway_selected_tasks_${formatDateOnly(new Date())}.csv`;
+  downloadCsv(filename, rows);
+}
+
+async function bulkCloseSelectedTasks() {
+  const ids = getSelectedOpenTaskIds();
+  if (!ids.length) {
+    alert('No tasks selected.');
+    return;
+  }
+  if (!confirm(`Close ${ids.length} tasks? They will move from OPEN to CLOSED.`)) {
+    return;
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  for (const id of ids) {
+    try {
+      await updateTaskStatusOnBackend(id, 'CLOSED');
+      successCount++;
+    } catch (e) {
+      console.error('Failed to close task', id, e);
+      failCount++;
+    }
+  }
+
+  await fetchAppData();
+  refreshOpenTaskListToday();
+  refreshAllOpenTasks();
+  refreshPendingOldOpenTasks();
+  refreshRecentClosedTasks();
+  await runReport();
+
+  alert(`Bulk close completed. Success: ${successCount}, Failed: ${failCount}`);
 }
 
 async function runReport() {
@@ -1088,7 +1309,7 @@ async function exportReportCsv() {
   );
 
   const rows = [];
-  rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'scanned_at', 'closed_at']);
+  rows.push(['task_code', 'bin_id', 'sku_id', 'qty', 'remarks', 'scanned_at', 'closed_at']);
   relevantLines.forEach(l => {
     const task = appData.tasks.find(t => t.id === l.taskId);
     rows.push([
@@ -1096,6 +1317,7 @@ async function exportReportCsv() {
       l.binId,
       l.skuId,
       l.qty,
+      l.remarks || '',
       l.scannedAt,
       task ? task.closedAt : ''
     ]);
